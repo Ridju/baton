@@ -6,8 +6,12 @@ pub enum Token {
     Return(String),
     IntKeyword(String),
     Identifier(String),
-
     IntNumber(String),
+
+    LeftParen,
+    RightParen,
+    LeftBrace,
+    RightBrace,
 }
 
 #[derive(Debug)]
@@ -18,12 +22,35 @@ pub fn scan_source(source: &str) -> Vec<Token> {
     let mut tokens: Vec<Token> = Vec::new();
 
     while let Some(&c) = chars.peek() {
-        if c.is_alphabetic() {
-            let token = identifier_or_keyword(&mut chars);
-            tokens.push(token);
+        match c {
+            c if c.is_whitespace() => {
+                chars.next();
+            }
+            c if c.is_alphabetic() => {
+                let token = identifier_or_keyword(&mut chars);
+                tokens.push(token);
+            }
+            '(' => {
+                chars.next();
+                tokens.push(Token::LeftParen);
+            }
+            ')' => {
+                chars.next();
+                tokens.push(Token::RightParen);
+            }
+            '{' => {
+                chars.next();
+                tokens.push(Token::LeftBrace);
+            }
+            '}' => {
+                chars.next();
+                tokens.push(Token::RightBrace);
+            }
+            _ => {
+                todo!("Not implemented");
+            }
         }
     }
-
     tokens
 }
 
@@ -88,5 +115,33 @@ mod tests {
             tokens,
             vec![Token::Identifier("my_return_int_var".to_string())]
         );
+    }
+
+    #[test]
+    fn test_left_paren_token() {
+        let input = "(";
+        let tokens = scan_source(input);
+        assert_eq!(tokens, vec![Token::LeftParen]);
+    }
+
+    #[test]
+    fn test_right_paren_token() {
+        let input = ")";
+        let tokens = scan_source(input);
+        assert_eq!(tokens, vec![Token::RightParen]);
+    }
+
+    #[test]
+    fn test_left_brace_token() {
+        let input = "{";
+        let tokens = scan_source(input);
+        assert_eq!(tokens, vec![Token::LeftBrace]);
+    }
+
+    #[test]
+    fn test_right_brace_token() {
+        let input = "}";
+        let tokens = scan_source(input);
+        assert_eq!(tokens, vec![Token::RightBrace]);
     }
 }
