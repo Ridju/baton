@@ -79,4 +79,14 @@ mod tests {
             vec![Token::Identifier("my_variable123".to_string())]
         );
     }
+
+    #[test]
+    fn test_keyword_in_identifier() {
+        let input = "my_return_int_var";
+        let tokens = scan_source(input);
+        assert_eq!(
+            tokens,
+            vec![Token::Identifier("my_return_int_var".to_string())]
+        );
+    }
 }
