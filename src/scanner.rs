@@ -12,6 +12,8 @@ pub enum Token {
     RightParen,
     LeftBrace,
     RightBrace,
+
+    Semicolon,
 }
 
 #[derive(Debug)]
@@ -45,6 +47,10 @@ pub fn scan_source(source: &str) -> Vec<Token> {
             '}' => {
                 chars.next();
                 tokens.push(Token::RightBrace);
+            }
+            ';' => {
+                chars.next();
+                tokens.push(Token::Semicolon);
             }
             _ => {
                 todo!("Not implemented");
@@ -143,5 +149,12 @@ mod tests {
         let input = "}";
         let tokens = scan_source(input);
         assert_eq!(tokens, vec![Token::RightBrace]);
+    }
+
+    #[test]
+    fn test_semicolon_token() {
+        let input = ";";
+        let tokens = scan_source(input);
+        assert_eq!(tokens, vec![Token::Semicolon]);
     }
 }
