@@ -3,7 +3,7 @@ use std::str::Chars;
 
 #[derive(Debug, PartialEq)]
 pub enum Token {
-    Return(String),
+    Return,
     IntKeyword(String),
     Identifier(String),
     IntNumber(String),
@@ -30,6 +30,10 @@ pub fn scan_source(source: &str) -> Vec<Token> {
             }
             c if c.is_alphabetic() => {
                 let token = identifier_or_keyword(&mut chars);
+                tokens.push(token);
+            }
+            c if c.is_numeric() => {
+                let token = scan_number(&mut chars);
                 tokens.push(token);
             }
             '(' => {
@@ -73,16 +77,24 @@ fn identifier_or_keyword(chars: &mut Peekable<Chars<'_>>) -> Token {
     }
 
     match token_string.as_str() {
-        "return" => {
-            return Token::Return(token_string);
-        }
-        "int" => {
-            return Token::IntKeyword(token_string);
-        }
-        _ => {
-            return Token::Identifier(token_string);
+        "return" => Token::Return,
+        "int" => Token::IntKeyword(token_string),
+        _ => Token::Identifier(token_string),
+    }
+}
+
+fn scan_number(chars: &mut Peekable<Chars<'_>>) -> Token {
+    let mut token_string = String::new();
+    while let Some(&c) = chars.peek() {
+        if c.is_numeric() {
+            token_string.push(c);
+            chars.next();
+        } else {
+            break;
         }
     }
+
+    Token::IntNumber(token_string)
 }
 
 #[cfg(test)]
@@ -90,10 +102,34 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_small_main_programm() {
+        let input = r#"
+        int main() {
+            return 42;
+        } 
+        "#;
+        let tokens = scan_source(input);
+        assert_eq!(
+            tokens,
+            vec![
+                Token::IntKeyword("int".to_string()),
+                Token::Identifier("main".to_string()),
+                Token::LeftParen,
+                Token::RightParen,
+                Token::LeftBrace,
+                Token::Return,
+                Token::IntNumber("42".to_string()),
+                Token::Semicolon,
+                Token::RightBrace
+            ]
+        );
+    }
+
+    #[test]
     fn test_return_token() {
         let input = "return";
         let tokens = scan_source(input);
-        assert_eq!(tokens, vec![Token::Return("return".to_string())]);
+        assert_eq!(tokens, vec![Token::Return]);
     }
 
     #[test]
@@ -156,5 +192,12 @@ mod tests {
         let input = ";";
         let tokens = scan_source(input);
         assert_eq!(tokens, vec![Token::Semicolon]);
+    }
+
+    #[test]
+    fn test_int_number() { 
+        let input = "42";
+        let tokens = scan_source(input);
+        assert_eq!(tokens, vec![Token::IntNumber("42".to_string())]);
     }
 }
