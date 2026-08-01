@@ -4,7 +4,7 @@ use std::str::Chars;
 #[derive(Debug, PartialEq)]
 pub enum Token {
     Return,
-    IntKeyword(String),
+    IntKeyword,
     Identifier(String),
     IntNumber(String),
 
@@ -78,7 +78,7 @@ fn identifier_or_keyword(chars: &mut Peekable<Chars<'_>>) -> Token {
 
     match token_string.as_str() {
         "return" => Token::Return,
-        "int" => Token::IntKeyword(token_string),
+        "int" => Token::IntKeyword,
         _ => Token::Identifier(token_string),
     }
 }
@@ -112,7 +112,7 @@ mod tests {
         assert_eq!(
             tokens,
             vec![
-                Token::IntKeyword("int".to_string()),
+                Token::IntKeyword,
                 Token::Identifier("main".to_string()),
                 Token::LeftParen,
                 Token::RightParen,
@@ -136,7 +136,7 @@ mod tests {
     fn test_int_token() {
         let input = "int";
         let tokens = scan_source(input);
-        assert_eq!(tokens, vec![Token::IntKeyword("int".to_string())]);
+        assert_eq!(tokens, vec![Token::IntKeyword]);
     }
 
     #[test]
@@ -195,7 +195,7 @@ mod tests {
     }
 
     #[test]
-    fn test_int_number() { 
+    fn test_int_number() {
         let input = "42";
         let tokens = scan_source(input);
         assert_eq!(tokens, vec![Token::IntNumber("42".to_string())]);

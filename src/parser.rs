@@ -1,3 +1,4 @@
+use crate::scanner::Token;
 
 #[derive(Debug, PartialEq)]
 enum Type {
@@ -5,17 +6,17 @@ enum Type {
 }
 
 #[derive(Debug, PartialEq)]
-struct Parameter { 
-    name: String, 
+struct Parameter {
+    name: String,
     param_typ: Type,
 }
 
 #[derive(Debug, PartialEq)]
 struct FunctionDeclData {
-    name: String, 
-    return_type: Type, 
+    name: String,
+    return_type: Type,
     parameter: Vec<Parameter>,
-    body: Box<AstNode>, 
+    body: Box<AstNode>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -26,3 +27,5 @@ enum AstNode {
     IntLiteralExpr(i16),
     BlockStatement(Vec<AstNode>),
 }
+
+
