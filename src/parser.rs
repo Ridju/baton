@@ -41,11 +41,12 @@ enum AstNode {
 
 pub fn parse(tokens: Vec<Token>) -> AstNode {
     let mut tokens = tokens.iter().peekable();
+    let mut nodes = Vec::new();
     while let Some(token) = tokens.peek() {
         match token {
             Token::IntKeyword => match tokens.clone().nth(2) {
                 Some(Token::LeftParen) => {
-                    parse_function(&mut tokens);
+                    nodes.push(parse_function(&mut tokens));
                 }
                 _ => {
                     todo!("Implement global variable parsing");
@@ -57,7 +58,7 @@ pub fn parse(tokens: Vec<Token>) -> AstNode {
         }
     }
 
-    AstNode::Programm(Vec::new())
+    AstNode::Programm(nodes)
 }
 
 fn parse_function(tokens: &mut Peekable<std::slice::Iter<'_, Token>>) -> AstNode {
@@ -160,4 +161,38 @@ fn parse_return_statement(tokens: &mut Peekable<std::slice::Iter<'_, Token>>) ->
     }
 
     AstNode::ReturnStatement(Box::new(expr_node))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::scanner::Token;
+
+    #[test]
+    fn test_parse_simple_function() {
+        let tokens = vec![
+            Token::IntKeyword,
+            Token::Identifier("main".to_string()),
+            Token::LeftParen,
+            Token::RightParen,
+            Token::LeftBrace,
+            Token::Return,
+            Token::IntNumber("42".to_string()),
+            Token::Semicolon,
+            Token::RightBrace,
+        ];
+
+        let ast = parse(tokens);
+
+        let expected = AstNode::Programm(vec![AstNode::FunctionDecl(FunctionDeclData {
+            name: "main".to_string(),
+            return_type: Type::Int,
+            parameter: Vec::new(),
+            body: Box::new(AstNode::BlockStatement(vec![AstNode::ReturnStatement(
+                Box::new(AstNode::IntLiteralExpr(42)),
+            )])),
+        })]);
+
+        assert_eq!(ast, expected);
+    }
 }
