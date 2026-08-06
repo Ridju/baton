@@ -1,7 +1,17 @@
 use std::slice::Iter;
 use std::{iter::Peekable, os::macos::raw::stat};
 
+use crate::parser::ParserError::{NotImplemented, UnexpectedEoF};
 use crate::scanner::Token;
+
+#[derive(Debug, PartialEq)]
+pub enum ParserError {
+    UnexpectedToken { expected: String, found: String },
+    UnknownType(String),
+    NotImplemented(String),
+    InvalidIntLiteral(String),
+    UnexpectedEoF,
+}
 
 #[derive(Debug, PartialEq)]
 enum Type {
@@ -9,10 +19,10 @@ enum Type {
 }
 
 impl Type {
-    fn get_from_token(token: &Token) -> Type {
+    fn get_from_token(token: &Token) -> Result<Type, ParserError> {
         match token {
-            Token::IntKeyword => Type::Int,
-            _ => todo!("Implement Type Error"),
+            Token::IntKeyword => Ok(Type::Int),
+            other => Err(ParserError::UnknownType(format!("{:?}", other))),
         }
     }
 }
@@ -51,37 +61,54 @@ impl<'a> Parser<'a> {
         }
     }
 
-    pub fn parse(&mut self) -> AstNode {
+    pub fn parse(&mut self) -> Result<AstNode, ParserError> {
         let mut nodes = Vec::new();
         while let Some(token) = self.tokens.peek() {
             match token {
                 Token::IntKeyword => match self.tokens.clone().nth(2) {
                     Some(Token::LeftParen) => {
-                        nodes.push(self.parse_function());
+                        nodes.push(self.parse_function()?);
                     }
                     _ => {
-                        todo!("Implement global variable parsing");
+                        return Err(ParserError::NotImplemented(
+                            "Global variable parsing not implemented".to_string(),
+                        ));
                     }
                 },
-                _ => {
-                    todo!("not implemented");
+                other => {
+                    return Err(ParserError::UnexpectedToken {
+                        expected: "int".to_string(),
+                        found: format!("{:?}", other),
+                    });
                 }
             }
         }
 
-        AstNode::Programm(nodes)
+        Ok(AstNode::Programm(nodes))
     }
 
-    fn parse_function(&mut self) -> AstNode {
-        let return_type = Type::get_from_token(self.tokens.next().unwrap());
+    fn parse_function(&mut self) -> Result<AstNode, ParserError> {
+        let return_type = Type::get_from_token(self.tokens.next().unwrap())?;
         let name = match self.tokens.next() {
             Some(Token::Identifier(name)) => name.clone(),
-            _ => todo!("Add error handling to function name"),
+            Some(other) => {
+                return Err(ParserError::UnexpectedToken {
+                    expected: "identifier (function name)".to_string(),
+                    found: format!("{:?}", other),
+                });
+            }
+            None => return Err(ParserError::UnexpectedEoF),
         };
 
         match self.tokens.next() {
             Some(Token::LeftParen) => {}
-            _ => todo!("Add error handling"),
+            Some(other) => {
+                return Err(ParserError::UnexpectedToken {
+                    expected: "'('".to_string(),
+                    found: format!("{:?}", other),
+                });
+            }
+            None => return Err(ParserError::UnexpectedEoF),
         }
 
         let mut parameter = Vec::new();
@@ -92,13 +119,17 @@ impl<'a> Parser<'a> {
                 break;
             }
 
-            let param_type = Type::get_from_token(self.tokens.next().unwrap());
+            let param_type = Type::get_from_token(self.tokens.next().unwrap())?;
 
             let param_name = match self.tokens.next() {
                 Some(Token::Identifier(name)) => name.clone(),
-                _ => {
-                    todo!("add error handling");
+                Some(other) => {
+                    return Err(ParserError::UnexpectedToken {
+                        expected: "identifier (paramter name)".to_string(),
+                        found: format!("{:?}", other),
+                    });
                 }
+                None => return Err(ParserError::UnexpectedEoF),
             };
 
             parameter.push(Parameter {
@@ -111,24 +142,38 @@ impl<'a> Parser<'a> {
                     self.tokens.next();
                     break;
                 }
-                _ => {
-                    todo!("Add error handling");
+                Some(other) => {
+                    return Err(ParserError::UnexpectedToken {
+                        expected: "')' or ','".to_string(),
+                        found: format!("{:?}", other),
+                    });
                 }
+                None => return Err(ParserError::UnexpectedEoF),
             }
         }
 
-        let body = self.parse_block();
+        let body = self.parse_block()?;
 
-        AstNode::FunctionDecl(FunctionDeclData {
+        Ok(AstNode::FunctionDecl(FunctionDeclData {
             name,
             return_type,
             parameter,
             body,
-        })
+        }))
     }
 
-    fn parse_block(&mut self) -> Box<AstNode> {
-        self.tokens.next();
+    fn parse_block(&mut self) -> Result<Box<AstNode>, ParserError> {
+        match self.tokens.next() {
+            Some(Token::LeftBrace) => {}
+            Some(other) => {
+                return Err(ParserError::UnexpectedToken {
+                    expected: "'{'".to_string(),
+                    found: format!("{:?}", other),
+                });
+            }
+            None => return Err(ParserError::UnexpectedEoF),
+        }
+
         let mut statements = Vec::new();
 
         loop {
@@ -138,40 +183,55 @@ impl<'a> Parser<'a> {
                     break;
                 }
                 Some(Token::Return) => {
-                    statements.push(self.parse_return_statement());
+                    statements.push(self.parse_return_statement()?);
                 }
-                _ => {
-                    todo!("Add error handling");
+                Some(other) => {
+                    return Err(ParserError::UnexpectedToken {
+                        expected: "return statment or '}'".to_string(),
+                        found: format!("{:?}", other),
+                    });
                 }
+                None => return Err(ParserError::UnexpectedEoF),
             }
         }
 
-        Box::new(AstNode::BlockStatement(statements))
+        Ok(Box::new(AstNode::BlockStatement(statements)))
     }
 
-    fn parse_return_statement(&mut self) -> AstNode {
+    fn parse_return_statement(&mut self) -> Result<AstNode, ParserError> {
         self.tokens.next();
 
         let expr_node = match self.tokens.peek() {
             Some(Token::IntNumber(number)) => {
+                let num_str = number.clone();
                 self.tokens.next();
-                let num = number.parse::<i16>().unwrap();
+                let num = number
+                    .parse::<i16>()
+                    .map_err(|_| ParserError::InvalidIntLiteral(num_str))?;
                 AstNode::IntLiteralExpr(num)
             }
             Some(Token::Semicolon) => AstNode::IntLiteralExpr(0),
-            _ => {
-                todo!("Add error handling");
+            Some(other) => {
+                return Err(ParserError::UnexpectedToken {
+                    expected: "int literal or ';'".to_string(),
+                    found: format!("{:?}", other),
+                });
             }
+            None => return Err(ParserError::UnexpectedEoF),
         };
 
         match self.tokens.next() {
             Some(Token::Semicolon) => {}
-            _ => {
-                todo!("Add error handling");
+            Some(other) => {
+                return Err(ParserError::UnexpectedToken {
+                    expected: "';'".to_string(),
+                    found: format!("{:?}", other),
+                });
             }
+            None => return Err(ParserError::UnexpectedEoF),
         }
 
-        AstNode::ReturnStatement(Box::new(expr_node))
+        Ok(AstNode::ReturnStatement(Box::new(expr_node)))
     }
 }
 
@@ -194,7 +254,8 @@ mod tests {
             Token::RightBrace,
         ];
 
-        let ast = parse(tokens);
+        let mut parser = Parser::new(&tokens);
+        let ast = parser.parse().unwrap();
 
         let expected = AstNode::Programm(vec![AstNode::FunctionDecl(FunctionDeclData {
             name: "main".to_string(),
