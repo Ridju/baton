@@ -144,7 +144,9 @@ mod tests {
             return 42;
         } 
         "#;
-        let tokens = scan_source(input);
+
+        let mut sc = Scanner::new(input);
+        let tokens = sc.scan_source().unwrap();
         assert_eq!(
             tokens,
             vec![
@@ -164,21 +166,24 @@ mod tests {
     #[test]
     fn test_return_token() {
         let input = "return";
-        let tokens = scan_source(input);
+        let mut sc = Scanner::new(input);
+        let tokens = sc.scan_source().unwrap();
         assert_eq!(tokens, vec![Token::Return]);
     }
 
     #[test]
     fn test_int_token() {
         let input = "int";
-        let tokens = scan_source(input);
+        let mut sc = Scanner::new(input);
+        let tokens = sc.scan_source().unwrap();
         assert_eq!(tokens, vec![Token::IntKeyword]);
     }
 
     #[test]
     fn test_identifier() {
         let input = "my_variable123";
-        let tokens = scan_source(input);
+        let mut sc = Scanner::new(input);
+        let tokens = sc.scan_source().unwrap();
         assert_eq!(
             tokens,
             vec![Token::Identifier("my_variable123".to_string())]
@@ -188,7 +193,8 @@ mod tests {
     #[test]
     fn test_keyword_in_identifier() {
         let input = "my_return_int_var";
-        let tokens = scan_source(input);
+        let mut sc = Scanner::new(input);
+        let tokens = sc.scan_source().unwrap();
         assert_eq!(
             tokens,
             vec![Token::Identifier("my_return_int_var".to_string())]
@@ -198,42 +204,48 @@ mod tests {
     #[test]
     fn test_left_paren_token() {
         let input = "(";
-        let tokens = scan_source(input);
+        let mut sc = Scanner::new(input);
+        let tokens = sc.scan_source().unwrap();
         assert_eq!(tokens, vec![Token::LeftParen]);
     }
 
     #[test]
     fn test_right_paren_token() {
         let input = ")";
-        let tokens = scan_source(input);
+        let mut sc = Scanner::new(input);
+        let tokens = sc.scan_source().unwrap();
         assert_eq!(tokens, vec![Token::RightParen]);
     }
 
     #[test]
     fn test_left_brace_token() {
         let input = "{";
-        let tokens = scan_source(input);
+        let mut sc = Scanner::new(input);
+        let tokens = sc.scan_source().unwrap();
         assert_eq!(tokens, vec![Token::LeftBrace]);
     }
 
     #[test]
     fn test_right_brace_token() {
         let input = "}";
-        let tokens = scan_source(input);
+        let mut sc = Scanner::new(input);
+        let tokens = sc.scan_source().unwrap();
         assert_eq!(tokens, vec![Token::RightBrace]);
     }
 
     #[test]
     fn test_semicolon_token() {
         let input = ";";
-        let tokens = scan_source(input);
+        let mut sc = Scanner::new(input);
+        let tokens = sc.scan_source().unwrap();
         assert_eq!(tokens, vec![Token::Semicolon]);
     }
 
     #[test]
     fn test_int_number() {
         let input = "42";
-        let tokens = scan_source(input);
+        let mut sc = Scanner::new(input);
+        let tokens = sc.scan_source().unwrap();
         assert_eq!(tokens, vec![Token::IntNumber("42".to_string())]);
     }
 }
