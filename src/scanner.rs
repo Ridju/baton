@@ -17,7 +17,11 @@ pub enum Token {
 }
 
 #[derive(Debug)]
-struct ScannerError;
+pub struct ScannerError {
+    message: String,
+    line: usize,
+    column: usize,
+}
 
 pub struct Scanner<'a> {
     chars: Peekable<Chars<'a>>,
@@ -34,7 +38,7 @@ impl<'a> Scanner<'a> {
         }
     }
 
-    pub fn scan_source(&mut self) -> Vec<Token> {
+    pub fn scan_source(&mut self) -> Result<Vec<Token>, ScannerError> {
         let mut tokens: Vec<Token> = Vec::new();
 
         while let Some(&c) = self.chars.peek() {
@@ -49,10 +53,10 @@ impl<'a> Scanner<'a> {
                     self.column += 1;
                 }
                 c if c.is_alphabetic() => {
-                    tokens.push(self.identifier_or_keyword());
+                    tokens.push(self.identifier_or_keyword()?);
                 }
                 c if c.is_numeric() => {
-                    tokens.push(self.scan_number());
+                    tokens.push(self.scan_number()?);
                 }
                 '(' => {
                     self.chars.next();
@@ -79,45 +83,53 @@ impl<'a> Scanner<'a> {
                     tokens.push(Token::Semicolon);
                     self.column += 1;
                 }
-                _ => {
-                    todo!("Not implemented");
+                other => {
+                    return Err(ScannerError {
+                        message: format!("Unexpected character: '{}'", other),
+                        line: self.line,
+                        column: self.column,
+                    });
                 }
             }
         }
-        tokens
+        Ok(tokens)
     }
 
-    fn identifier_or_keyword(&mut self) -> Token {
+    fn identifier_or_keyword(&mut self) -> Result<Token, ScannerError> {
         let mut token_string = String::new();
 
         while let Some(&c) = self.chars.peek() {
             if c.is_alphanumeric() || c == '_' {
                 token_string.push(c);
                 self.chars.next();
+                self.column += 1;
             } else {
                 break;
             }
         }
 
-        match token_string.as_str() {
+        let token = match token_string.as_str() {
             "return" => Token::Return,
             "int" => Token::IntKeyword,
             _ => Token::Identifier(token_string),
-        }
+        };
+
+        Ok(token)
     }
 
-    fn scan_number(&mut self) -> Token {
+    fn scan_number(&mut self) -> Result<Token, ScannerError> {
         let mut token_string = String::new();
         while let Some(&c) = self.chars.peek() {
             if c.is_numeric() {
                 token_string.push(c);
                 self.chars.next();
+                self.column += 1;
             } else {
                 break;
             }
         }
 
-        Token::IntNumber(token_string)
+        Ok(Token::IntNumber(token_string))
     }
 }
 
