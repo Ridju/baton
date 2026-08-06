@@ -1,3 +1,4 @@
+use std::slice::Iter;
 use std::{iter::Peekable, os::macos::raw::stat};
 
 use crate::scanner::Token;
@@ -39,128 +40,139 @@ enum AstNode {
     BlockStatement(Vec<AstNode>),
 }
 
-pub fn parse(tokens: Vec<Token>) -> AstNode {
-    let mut tokens = tokens.iter().peekable();
-    let mut nodes = Vec::new();
-    while let Some(token) = tokens.peek() {
-        match token {
-            Token::IntKeyword => match tokens.clone().nth(2) {
-                Some(Token::LeftParen) => {
-                    nodes.push(parse_function(&mut tokens));
-                }
-                _ => {
-                    todo!("Implement global variable parsing");
-                }
-            },
-            _ => {
-                todo!("not implemented");
-            }
-        }
-    }
-
-    AstNode::Programm(nodes)
+pub struct Parser<'a> {
+    tokens: Peekable<Iter<'a, Token>>,
 }
 
-fn parse_function(tokens: &mut Peekable<std::slice::Iter<'_, Token>>) -> AstNode {
-    let return_type = Type::get_from_token(tokens.next().unwrap());
-    let name = match tokens.next() {
-        Some(Token::Identifier(name)) => name.clone(),
-        _ => todo!("Add error handling to function name"),
-    };
-
-    match tokens.next() {
-        Some(Token::LeftParen) => {}
-        _ => todo!("Add error handling"),
+impl<'a> Parser<'a> {
+    pub fn new(tokens: &'a Vec<Token>) -> Self {
+        Parser {
+            tokens: tokens.iter().peekable(),
+        }
     }
 
-    let mut parameter = Vec::new();
-
-    loop {
-        if let Some(Token::RightParen) = tokens.peek() {
-            tokens.next();
-            break;
+    pub fn parse(&mut self) -> AstNode {
+        let mut nodes = Vec::new();
+        while let Some(token) = self.tokens.peek() {
+            match token {
+                Token::IntKeyword => match self.tokens.clone().nth(2) {
+                    Some(Token::LeftParen) => {
+                        nodes.push(self.parse_function());
+                    }
+                    _ => {
+                        todo!("Implement global variable parsing");
+                    }
+                },
+                _ => {
+                    todo!("not implemented");
+                }
+            }
         }
 
-        let param_type = Type::get_from_token(tokens.next().unwrap());
+        AstNode::Programm(nodes)
+    }
 
-        let param_name = match tokens.next() {
+    fn parse_function(&mut self) -> AstNode {
+        let return_type = Type::get_from_token(self.tokens.next().unwrap());
+        let name = match self.tokens.next() {
             Some(Token::Identifier(name)) => name.clone(),
+            _ => todo!("Add error handling to function name"),
+        };
+
+        match self.tokens.next() {
+            Some(Token::LeftParen) => {}
+            _ => todo!("Add error handling"),
+        }
+
+        let mut parameter = Vec::new();
+
+        loop {
+            if let Some(Token::RightParen) = self.tokens.peek() {
+                self.tokens.next();
+                break;
+            }
+
+            let param_type = Type::get_from_token(self.tokens.next().unwrap());
+
+            let param_name = match self.tokens.next() {
+                Some(Token::Identifier(name)) => name.clone(),
+                _ => {
+                    todo!("add error handling");
+                }
+            };
+
+            parameter.push(Parameter {
+                name: param_name,
+                param_typ: param_type,
+            });
+
+            match self.tokens.peek() {
+                Some(Token::RightParen) => {
+                    self.tokens.next();
+                    break;
+                }
+                _ => {
+                    todo!("Add error handling");
+                }
+            }
+        }
+
+        let body = self.parse_block();
+
+        AstNode::FunctionDecl(FunctionDeclData {
+            name,
+            return_type,
+            parameter,
+            body,
+        })
+    }
+
+    fn parse_block(&mut self) -> Box<AstNode> {
+        self.tokens.next();
+        let mut statements = Vec::new();
+
+        loop {
+            match self.tokens.peek() {
+                Some(Token::RightBrace) => {
+                    self.tokens.next();
+                    break;
+                }
+                Some(Token::Return) => {
+                    statements.push(self.parse_return_statement());
+                }
+                _ => {
+                    todo!("Add error handling");
+                }
+            }
+        }
+
+        Box::new(AstNode::BlockStatement(statements))
+    }
+
+    fn parse_return_statement(&mut self) -> AstNode {
+        self.tokens.next();
+
+        let expr_node = match self.tokens.peek() {
+            Some(Token::IntNumber(number)) => {
+                self.tokens.next();
+                let num = number.parse::<i16>().unwrap();
+                AstNode::IntLiteralExpr(num)
+            }
+            Some(Token::Semicolon) => AstNode::IntLiteralExpr(0),
             _ => {
-                todo!("add error handling");
+                todo!("Add error handling");
             }
         };
 
-        parameter.push(Parameter {
-            name: param_name,
-            param_typ: param_type,
-        });
-
-        match tokens.peek() {
-            Some(Token::RightParen) => {
-                tokens.next();
-                break;
-            }
+        match self.tokens.next() {
+            Some(Token::Semicolon) => {}
             _ => {
                 todo!("Add error handling");
             }
         }
+
+        AstNode::ReturnStatement(Box::new(expr_node))
     }
-
-    let body = parse_block(tokens);
-
-    AstNode::FunctionDecl(FunctionDeclData {
-        name,
-        return_type,
-        parameter,
-        body,
-    })
-}
-
-fn parse_block(tokens: &mut Peekable<std::slice::Iter<'_, Token>>) -> Box<AstNode> {
-    tokens.next();
-    let mut statements = Vec::new();
-
-    loop {
-        match tokens.peek() {
-            Some(Token::RightBrace) => {
-                tokens.next();
-                break;
-            }
-            Some(Token::Return) => {
-                statements.push(parse_return_statement(tokens));
-            }
-            _ => {
-                todo!("Add error handling");
-            }
-        }
-    }
-
-    Box::new(AstNode::BlockStatement(statements))
-}
-
-fn parse_return_statement(tokens: &mut Peekable<std::slice::Iter<'_, Token>>) -> AstNode {
-    tokens.next();
-
-    let expr_node = match tokens.peek() {
-        Some(Token::IntNumber(number)) => {
-            tokens.next();
-            let num = number.parse::<i16>().unwrap();
-            AstNode::IntLiteralExpr(num)
-        }
-        Some(Token::Semicolon) => AstNode::IntLiteralExpr(0),
-        _ => {
-            todo!("Add error handling");
-        }
-    };
-
-    match tokens.next() {
-        Some(Token::Semicolon) => {}
-        _ => {
-            todo!("Add error handling");
-        }
-    }
-
-    AstNode::ReturnStatement(Box::new(expr_node))
 }
 
 #[cfg(test)]
