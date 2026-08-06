@@ -19,82 +19,100 @@ pub enum Token {
 #[derive(Debug)]
 struct ScannerError;
 
-pub fn scan_source(source: &str) -> Vec<Token> {
-    let mut chars = source.chars().peekable();
-    let mut tokens: Vec<Token> = Vec::new();
-
-    while let Some(&c) = chars.peek() {
-        match c {
-            c if c.is_whitespace() => {
-                chars.next();
-            }
-            c if c.is_alphabetic() => {
-                let token = identifier_or_keyword(&mut chars);
-                tokens.push(token);
-            }
-            c if c.is_numeric() => {
-                let token = scan_number(&mut chars);
-                tokens.push(token);
-            }
-            '(' => {
-                chars.next();
-                tokens.push(Token::LeftParen);
-            }
-            ')' => {
-                chars.next();
-                tokens.push(Token::RightParen);
-            }
-            '{' => {
-                chars.next();
-                tokens.push(Token::LeftBrace);
-            }
-            '}' => {
-                chars.next();
-                tokens.push(Token::RightBrace);
-            }
-            ';' => {
-                chars.next();
-                tokens.push(Token::Semicolon);
-            }
-            _ => {
-                todo!("Not implemented");
-            }
-        }
-    }
-    tokens
+pub struct Scanner<'a> {
+    chars: Peekable<Chars<'a>>,
+    line: usize,
+    column: usize,
 }
 
-fn identifier_or_keyword(chars: &mut Peekable<Chars<'_>>) -> Token {
-    let mut token_string = String::new();
-
-    while let Some(&c) = chars.peek() {
-        if c.is_alphanumeric() || c == '_' {
-            token_string.push(c);
-            chars.next();
-        } else {
-            break;
+impl<'a> Scanner<'a> {
+    pub fn new(source: &'a str) -> Self { 
+        Scanner { 
+            chars: source.chars().peekable(),
+            line: 1,
+            column: 1
         }
     }
 
-    match token_string.as_str() {
-        "return" => Token::Return,
-        "int" => Token::IntKeyword,
-        _ => Token::Identifier(token_string),
-    }
-}
+    pub fn scan_source(&mut self) -> Vec<Token> {
+        let mut tokens: Vec<Token> = Vec::new();
 
-fn scan_number(chars: &mut Peekable<Chars<'_>>) -> Token {
-    let mut token_string = String::new();
-    while let Some(&c) = chars.peek() {
-        if c.is_numeric() {
-            token_string.push(c);
-            chars.next();
-        } else {
-            break;
+        while let Some(&c) = self.chars.peek() {
+            match c {
+                '\n' => { 
+                    self.chars.next();
+                    self.line += 1;
+                    self.column = 1;
+                }
+                c if c.is_whitespace() => {
+                    self.chars.next();
+                }
+                c if c.is_alphabetic() => {
+                    tokens.push(self.identifier_or_keyword());
+                }
+                c if c.is_numeric() => {
+                    tokens.push(self.scan_number());
+                }
+                '(' => {
+                    self.chars.next();
+                    tokens.push(Token::LeftParen);
+                }
+                ')' => {
+                    self.chars.next();
+                    tokens.push(Token::RightParen);
+                }
+                '{' => {
+                    self.chars.next();
+                    tokens.push(Token::LeftBrace);
+                }
+                '}' => {
+                    self.chars.next();
+                    tokens.push(Token::RightBrace);
+                }
+                ';' => {
+                    self.chars.next();
+                    tokens.push(Token::Semicolon);
+                }
+                _ => {
+                    todo!("Not implemented");
+                }
+            }
+        }
+        tokens
+    }
+
+    fn identifier_or_keyword(&mut self) -> Token {
+        let mut token_string = String::new();
+
+        while let Some(&c) = self.chars.peek() {
+            if c.is_alphanumeric() || c == '_' {
+                token_string.push(c);
+                self.chars.next();
+            } else {
+                break;
+            }
+        }
+
+        match token_string.as_str() {
+            "return" => Token::Return,
+            "int" => Token::IntKeyword,
+            _ => Token::Identifier(token_string),
         }
     }
 
-    Token::IntNumber(token_string)
+    fn scan_number(&mut self) -> Token {
+        let mut token_string = String::new();
+        while let Some(&c) = self.chars.peek() {
+            if c.is_numeric() {
+                token_string.push(c);
+                self.chars.next();
+            } else {
+                break;
+            }
+        }
+
+        Token::IntNumber(token_string)
+    }
 }
 
 #[cfg(test)]
