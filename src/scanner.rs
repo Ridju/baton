@@ -16,7 +16,7 @@ pub enum Token {
     Semicolon,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct ScannerError {
     message: String,
     line: usize,
@@ -247,5 +247,69 @@ mod tests {
         let mut sc = Scanner::new(input);
         let tokens = sc.scan_source().unwrap();
         assert_eq!(tokens, vec![Token::IntNumber("42".to_string())]);
+    }
+
+    #[test]
+    fn test_unexpected_character_at_start() {
+        let input = "@int main() {}";
+        let mut sc = Scanner::new(input);
+        let result = sc.scan_source();
+
+        assert_eq!(
+            result,
+            Err(ScannerError {
+                message: "Unexpected character: '@'".to_string(),
+                line: 1,
+                column: 1,
+            })
+        );
+    }
+
+    #[test]
+    fn test_unexpected_character_multiline() {
+        let input = "int main() {\n    return 42#;\n}";
+        let mut sc = Scanner::new(input);
+        let result = sc.scan_source();
+
+        assert_eq!(
+            result,
+            Err(ScannerError {
+                message: "Unexpected character: '#'".to_string(),
+                line: 2,
+                column: 14,
+            })
+        );
+    }
+
+    #[test]
+    fn test_unexpected_symbol_in_middle() {
+        let input = "int $variable;";
+        let mut sc = Scanner::new(input);
+        let result = sc.scan_source();
+
+        assert_eq!(
+            result,
+            Err(ScannerError {
+                message: "Unexpected character: '$'".to_string(),
+                line: 1,
+                column: 5,
+            })
+        );
+    }
+
+    #[test]
+    fn test_unexpected_question_mark() {
+        let input = "int main(?) {}";
+        let mut sc = Scanner::new(input);
+        let result = sc.scan_source();
+
+        assert_eq!(
+            result,
+            Err(ScannerError {
+                message: "Unexpected character: '?'".to_string(),
+                line: 1,
+                column: 10,
+            })
+        );
     }
 }
