@@ -26,11 +26,11 @@ pub struct Scanner<'a> {
 }
 
 impl<'a> Scanner<'a> {
-    pub fn new(source: &'a str) -> Self { 
-        Scanner { 
+    pub fn new(source: &'a str) -> Self {
+        Scanner {
             chars: source.chars().peekable(),
             line: 1,
-            column: 1
+            column: 1,
         }
     }
 
@@ -39,13 +39,14 @@ impl<'a> Scanner<'a> {
 
         while let Some(&c) = self.chars.peek() {
             match c {
-                '\n' => { 
+                '\n' => {
                     self.chars.next();
                     self.line += 1;
                     self.column = 1;
                 }
                 c if c.is_whitespace() => {
                     self.chars.next();
+                    self.column += 1;
                 }
                 c if c.is_alphabetic() => {
                     tokens.push(self.identifier_or_keyword());
@@ -56,22 +57,27 @@ impl<'a> Scanner<'a> {
                 '(' => {
                     self.chars.next();
                     tokens.push(Token::LeftParen);
+                    self.column += 1;
                 }
                 ')' => {
                     self.chars.next();
                     tokens.push(Token::RightParen);
+                    self.column += 1;
                 }
                 '{' => {
                     self.chars.next();
                     tokens.push(Token::LeftBrace);
+                    self.column += 1;
                 }
                 '}' => {
                     self.chars.next();
                     tokens.push(Token::RightBrace);
+                    self.column += 1;
                 }
                 ';' => {
                     self.chars.next();
                     tokens.push(Token::Semicolon);
+                    self.column += 1;
                 }
                 _ => {
                     todo!("Not implemented");
