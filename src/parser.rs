@@ -268,4 +268,227 @@ mod tests {
 
         assert_eq!(ast, expected);
     }
+
+    #[test]
+    fn test_parser_unexpected_eof() {
+        let tokens = vec![Token::IntKeyword, Token::Identifier("main".to_string())];
+
+        let result = Parser::new(&tokens).parse();
+        assert_eq!(
+            result,
+            Err(ParserError::NotImplemented(
+                "Global variable parsing not implemented".to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn test_parser_invalid_int_literal() {
+        let tokens = vec![
+            Token::IntKeyword,
+            Token::Identifier("main".to_string()),
+            Token::LeftParen,
+            Token::RightParen,
+            Token::LeftBrace,
+            Token::Return,
+            Token::IntNumber("999999".to_string()),
+            Token::Semicolon,
+            Token::RightBrace,
+        ];
+
+        let result = Parser::new(&tokens).parse();
+        assert_eq!(
+            result,
+            Err(ParserError::InvalidIntLiteral("999999".to_string()))
+        );
+    }
+
+    #[test]
+    fn test_parser_unexpected_global_token() {
+        let tokens = vec![Token::Semicolon];
+
+        let result = Parser::new(&tokens).parse();
+        assert_eq!(
+            result,
+            Err(ParserError::UnexpectedToken {
+                expected: "int".to_string(),
+                found: "Semicolon".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn test_parser_missing_left_brace() {
+        let tokens = vec![
+            Token::IntKeyword,
+            Token::Identifier("main".to_string()),
+            Token::LeftParen,
+            Token::RightParen,
+            Token::Return,
+            Token::IntNumber("0".to_string()),
+            Token::Semicolon,
+            Token::RightBrace,
+        ];
+
+        let result = Parser::new(&tokens).parse();
+        assert_eq!(
+            result,
+            Err(ParserError::UnexpectedToken {
+                expected: "'{'".to_string(),
+                found: "Return".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn test_parser_not_implemented_global_var() {
+        let tokens = vec![
+            Token::IntKeyword,
+            Token::Identifier("global_var".to_string()),
+            Token::Semicolon,
+        ];
+
+        let result = Parser::new(&tokens).parse();
+        assert_eq!(
+            result,
+            Err(ParserError::NotImplemented(
+                "Global variable parsing not implemented".to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn test_parse_function_with_parameter() {
+        let tokens = vec![
+            Token::IntKeyword,
+            Token::Identifier("add".to_string()),
+            Token::LeftParen,
+            Token::IntKeyword,
+            Token::Identifier("x".to_string()),
+            Token::RightParen,
+            Token::LeftBrace,
+            Token::Return,
+            Token::IntNumber("10".to_string()),
+            Token::Semicolon,
+            Token::RightBrace,
+        ];
+
+        let mut parser = Parser::new(&tokens);
+        let ast = parser.parse().unwrap();
+
+        let expected = AstNode::Programm(vec![AstNode::FunctionDecl(FunctionDeclData {
+            name: "add".to_string(),
+            return_type: Type::Int,
+            parameter: vec![Parameter {
+                name: "x".to_string(),
+                param_typ: Type::Int,
+            }],
+            body: Box::new(AstNode::BlockStatement(vec![AstNode::ReturnStatement(
+                Box::new(AstNode::IntLiteralExpr(10)),
+            )])),
+        })]);
+
+        assert_eq!(ast, expected);
+    }
+
+    #[test]
+    fn test_parse_empty_return_statement() {
+        let tokens = vec![
+            Token::IntKeyword,
+            Token::Identifier("main".to_string()),
+            Token::LeftParen,
+            Token::RightParen,
+            Token::LeftBrace,
+            Token::Return,
+            Token::Semicolon,
+            Token::RightBrace,
+        ];
+
+        let mut parser = Parser::new(&tokens);
+        let ast = parser.parse().unwrap();
+
+        let expected = AstNode::Programm(vec![AstNode::FunctionDecl(FunctionDeclData {
+            name: "main".to_string(),
+            return_type: Type::Int,
+            parameter: Vec::new(),
+            body: Box::new(AstNode::BlockStatement(vec![AstNode::ReturnStatement(
+                Box::new(AstNode::IntLiteralExpr(0)),
+            )])),
+        })]);
+
+        assert_eq!(ast, expected);
+    }
+
+    #[test]
+    fn test_parser_eof_inside_parameters() {
+        let tokens = vec![
+            Token::IntKeyword,
+            Token::Identifier("main".to_string()),
+            Token::LeftParen,
+            Token::IntKeyword,
+            // Cuts off before parameter name or closing paren
+        ];
+
+        let result = Parser::new(&tokens).parse();
+        assert_eq!(result, Err(ParserError::UnexpectedEoF));
+    }
+
+    #[test]
+    fn test_parser_eof_inside_block() {
+        let tokens = vec![
+            Token::IntKeyword,
+            Token::Identifier("main".to_string()),
+            Token::LeftParen,
+            Token::RightParen,
+            Token::LeftBrace,
+            Token::Return,
+            Token::IntNumber("0".to_string()),
+            Token::Semicolon,
+            // Missing RightBrace at the end
+        ];
+
+        let result = Parser::new(&tokens).parse();
+        assert_eq!(result, Err(ParserError::UnexpectedEoF));
+    }
+
+    #[test]
+    fn test_parser_unknown_parameter_type() {
+        let tokens = vec![
+            Token::IntKeyword,
+            Token::Identifier("foo".to_string()),
+            Token::LeftParen,
+            Token::Identifier("float".to_string()), // Unsupported type token
+            Token::Identifier("x".to_string()),
+            Token::RightParen,
+            Token::LeftBrace,
+            Token::RightBrace,
+        ];
+
+        let result = Parser::new(&tokens).parse();
+        assert!(matches!(result, Err(ParserError::UnknownType(_))));
+    }
+
+    #[test]
+    fn test_parser_invalid_return_expression() {
+        let tokens = vec![
+            Token::IntKeyword,
+            Token::Identifier("main".to_string()),
+            Token::LeftParen,
+            Token::RightParen,
+            Token::LeftBrace,
+            Token::Return,
+            Token::LeftParen, // Invalid token directly after return instead of number or semicolon
+            Token::Semicolon,
+            Token::RightBrace,
+        ];
+
+        let result = Parser::new(&tokens).parse();
+        assert_eq!(
+            result,
+            Err(ParserError::UnexpectedToken {
+                expected: "int literal or ';'".to_string(),
+                found: "LeftParen".to_string(),
+            })
+        );
+    }
 }
