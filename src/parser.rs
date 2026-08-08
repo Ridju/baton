@@ -13,8 +13,8 @@ pub enum ParserError {
     UnexpectedEoF,
 }
 
-#[derive(Debug, PartialEq)]
-enum Type {
+#[derive(Debug, PartialEq, Clone)]
+pub enum Type {
     Int,
 }
 
@@ -28,21 +28,21 @@ impl Type {
 }
 
 #[derive(Debug, PartialEq)]
-struct Parameter {
+pub struct Parameter {
     name: String,
     param_typ: Type,
 }
 
 #[derive(Debug, PartialEq)]
-struct FunctionDeclData {
-    name: String,
-    return_type: Type,
-    parameter: Vec<Parameter>,
-    body: Box<AstNode>,
+pub struct FunctionDeclData {
+    pub name: String,
+    pub return_type: Type,
+    pub parameter: Vec<Parameter>,
+    pub body: Box<AstNode>,
 }
 
 #[derive(Debug, PartialEq)]
-enum AstNode {
+pub enum AstNode {
     Programm(Vec<AstNode>),
     FunctionDecl(FunctionDeclData),
     ReturnStatement(Box<AstNode>),
@@ -426,7 +426,6 @@ mod tests {
             Token::Identifier("main".to_string()),
             Token::LeftParen,
             Token::IntKeyword,
-            // Cuts off before parameter name or closing paren
         ];
 
         let result = Parser::new(&tokens).parse();
@@ -444,7 +443,6 @@ mod tests {
             Token::Return,
             Token::IntNumber("0".to_string()),
             Token::Semicolon,
-            // Missing RightBrace at the end
         ];
 
         let result = Parser::new(&tokens).parse();
@@ -457,7 +455,7 @@ mod tests {
             Token::IntKeyword,
             Token::Identifier("foo".to_string()),
             Token::LeftParen,
-            Token::Identifier("float".to_string()), // Unsupported type token
+            Token::Identifier("float".to_string()), 
             Token::Identifier("x".to_string()),
             Token::RightParen,
             Token::LeftBrace,
@@ -477,7 +475,7 @@ mod tests {
             Token::RightParen,
             Token::LeftBrace,
             Token::Return,
-            Token::LeftParen, // Invalid token directly after return instead of number or semicolon
+            Token::LeftParen, 
             Token::Semicolon,
             Token::RightBrace,
         ];
