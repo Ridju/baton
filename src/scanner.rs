@@ -18,9 +18,9 @@ pub enum Token {
 
 #[derive(Debug, PartialEq)]
 pub struct ScannerError {
-    message: String,
-    line: usize,
-    column: usize,
+    pub message: String,
+    pub line: usize,
+    pub column: usize,
 }
 
 pub struct Scanner<'a> {

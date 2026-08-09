@@ -1,7 +1,8 @@
 use crate::parser::{AstNode, FunctionDeclData, Type};
 use std::collections::HashMap;
 
-enum SemanticError {
+#[derive(Debug)]
+pub enum SemanticError {
     Redefinition(String),
     InvalidReturnType(String),
     NotMatchingReturnType(String),
@@ -19,20 +20,20 @@ struct MetaData {
     kind: ElementKind,
 }
 
-struct Analyzer {
+pub struct Analyzer {
     scope_stack: Vec<HashMap<String, MetaData>>,
     current_return_type: Option<Type>,
 }
 
 impl Analyzer {
-    fn new() -> Analyzer {
+    pub fn new() -> Analyzer {
         Analyzer {
             scope_stack: vec![HashMap::new()],
             current_return_type: None,
         }
     }
 
-    fn analyze(&mut self, ast: AstNode) -> Result<(), SemanticError> {
+    pub fn analyze(&mut self, ast: AstNode) -> Result<(), SemanticError> {
         match ast {
             AstNode::Programm(nodes) => {
                 for node in nodes {

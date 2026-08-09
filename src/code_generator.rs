@@ -1,26 +1,27 @@
 use crate::parser::AstNode;
 use std::fs;
 use std::io;
+use std::path::Path;
 use std::process::Command;
 
 #[derive(Debug, PartialEq)]
-enum GeneratorError {
+pub enum GeneratorError {
     GeneralError(String),
 }
 
 #[derive(Debug)]
-struct Generator {
+pub struct Generator {
     buffer: String,
 }
 
 impl Generator {
-    fn new() -> Generator {
+    pub fn new() -> Generator {
         Generator {
             buffer: String::new(),
         }
     }
 
-    fn generate(&mut self, ast: AstNode) -> Result<(), GeneratorError> {
+    pub fn generate(&mut self, ast: AstNode) -> Result<(), GeneratorError> {
         match ast {
             AstNode::Programm(nodes) => {
                 self.buffer.push_str(".global _main\n.text\n\n");
@@ -60,20 +61,44 @@ impl Generator {
 
     pub fn compile_executable(
         &self,
-        s_filename: &str,
+        input_file: &str,
         output_name: &str,
     ) -> Result<(), GeneratorError> {
-        self.write_to_file(s_filename)
+        // 1. Output-Verzeichnis erstellen
+        let output_dir = Path::new("output");
+        fs::create_dir_all(output_dir).map_err(|e| {
+            GeneratorError::GeneralError(format!("Could not create output directory: {}", e))
+        })?;
+
+        // 2. Automatisches Ableiten der .s-Datei aus dem Input-Dateinamen
+        let input_path = Path::new(input_file);
+        let file_stem = input_path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("output");
+
+        let s_filename = format!("{}.s", file_stem);
+
+        // 3. Pfade für den output-Ordner zusammenbauen
+        let s_path = output_dir.join(&s_filename);
+        let output_path = output_dir.join(output_name);
+
+        // 4. Assembler-Datei schreiben
+        self.write_to_file(s_path.to_str().unwrap())
             .map_err(|e| GeneratorError::GeneralError(format!("Could not write file: {}", e)))?;
 
+        // 5. C-Compiler aufrufen
         let status = Command::new("cc")
-            .arg(s_filename)
+            .arg(&s_path)
             .arg("-o")
-            .arg(output_name)
+            .arg(&output_path)
             .status()
             .map_err(|e| {
                 GeneratorError::GeneralError(format!("Compiler could not be started: {}", e))
             })?;
+
+        // 6. Optional: Die temporäre Assembler-Datei im output-Ordner wieder löschen
+        let _ = fs::remove_file(&s_path);
 
         if status.success() {
             Ok(())
