@@ -63,11 +63,9 @@ impl Generator {
         s_filename: &str,
         output_name: &str,
     ) -> Result<(), GeneratorError> {
-        // 1. Datei schreiben und Fehler sauber abfangen (mit ?)
         self.write_to_file(s_filename)
             .map_err(|e| GeneratorError::GeneralError(format!("Could not write file: {}", e)))?;
 
-        // 2. Compiler aufrufen
         let status = Command::new("cc")
             .arg(s_filename)
             .arg("-o")
@@ -77,7 +75,6 @@ impl Generator {
                 GeneratorError::GeneralError(format!("Compiler could not be started: {}", e))
             })?;
 
-        // 3. Prüfen, ob der C-Compiler erfolgreich war
         if status.success() {
             Ok(())
         } else {
@@ -110,6 +107,73 @@ mod tests {
         let expected_assembly = ".global _main\n.text\n\n_main:\n\tstp x29, x30, [sp, #-16]!\n\tmov x29, sp\n\tmov x0, #42\n\tldp x29, x30, [sp], #16\n\tret\n";
 
         assert_eq!(generator.buffer, expected_assembly);
-        generator.compile_executable("output.s", "program");
+    }
+
+    #[test]
+    fn test_generate_zero_return() {
+        let ast = AstNode::Programm(vec![AstNode::FunctionDecl(FunctionDeclData {
+            name: "main".to_string(),
+            return_type: Type::Int,
+            parameter: Vec::new(),
+            body: Box::new(AstNode::BlockStatement(vec![AstNode::ReturnStatement(
+                Box::new(AstNode::IntLiteralExpr(0)),
+            )])),
+        })]);
+
+        let mut generator = Generator::new();
+        generator.generate(ast).unwrap();
+
+        let expected_assembly = ".global _main\n.text\n\n_main:\n\tstp x29, x30, [sp, #-16]!\n\tmov x29, sp\n\tmov x0, #0\n\tldp x29, x30, [sp], #16\n\tret\n";
+
+        assert_eq!(generator.buffer, expected_assembly);
+    }
+
+    #[test]
+    fn test_generate_multiple_functions() {
+        let ast = AstNode::Programm(vec![
+            AstNode::FunctionDecl(FunctionDeclData {
+                name: "main".to_string(),
+                return_type: Type::Int,
+                parameter: Vec::new(),
+                body: Box::new(AstNode::BlockStatement(vec![AstNode::ReturnStatement(
+                    Box::new(AstNode::IntLiteralExpr(0)),
+                )])),
+            }),
+            AstNode::FunctionDecl(FunctionDeclData {
+                name: "helper_func".to_string(),
+                return_type: Type::Int,
+                parameter: Vec::new(),
+                body: Box::new(AstNode::BlockStatement(vec![AstNode::ReturnStatement(
+                    Box::new(AstNode::IntLiteralExpr(100)),
+                )])),
+            }),
+        ]);
+
+        let mut generator = Generator::new();
+        generator.generate(ast).unwrap();
+
+        let expected_assembly = ".global _main\n.text\n\n_main:\n\tstp x29, x30, [sp, #-16]!\n\tmov x29, sp\n\tmov x0, #0\n\tldp x29, x30, [sp], #16\n\tret\n_helper_func:\n\tstp x29, x30, [sp, #-16]!\n\tmov x29, sp\n\tmov x0, #100\n\tldp x29, x30, [sp], #16\n\tret\n";
+
+        assert_eq!(generator.buffer, expected_assembly);
+    }
+
+    #[test]
+    fn test_generate_block_with_multiple_statements() {
+        let ast = AstNode::Programm(vec![AstNode::FunctionDecl(FunctionDeclData {
+            name: "main".to_string(),
+            return_type: Type::Int,
+            parameter: Vec::new(),
+            body: Box::new(AstNode::BlockStatement(vec![
+                AstNode::IntLiteralExpr(5),
+                AstNode::ReturnStatement(Box::new(AstNode::IntLiteralExpr(10))),
+            ])),
+        })]);
+
+        let mut generator = Generator::new();
+        generator.generate(ast).unwrap();
+
+        let expected_assembly = ".global _main\n.text\n\n_main:\n\tstp x29, x30, [sp, #-16]!\n\tmov x29, sp\n\tmov x0, #5\n\tmov x0, #10\n\tldp x29, x30, [sp], #16\n\tret\n";
+
+        assert_eq!(generator.buffer, expected_assembly);
     }
 }
