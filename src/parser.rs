@@ -455,7 +455,7 @@ mod tests {
             Token::IntKeyword,
             Token::Identifier("foo".to_string()),
             Token::LeftParen,
-            Token::Identifier("float".to_string()), 
+            Token::Identifier("float".to_string()),
             Token::Identifier("x".to_string()),
             Token::RightParen,
             Token::LeftBrace,
@@ -475,7 +475,7 @@ mod tests {
             Token::RightParen,
             Token::LeftBrace,
             Token::Return,
-            Token::LeftParen, 
+            Token::LeftParen,
             Token::Semicolon,
             Token::RightBrace,
         ];
