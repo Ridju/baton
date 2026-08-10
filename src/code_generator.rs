@@ -131,7 +131,7 @@ impl Generator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::parser::{AstNode, FunctionDeclData, Type};
+    use crate::parser::{AstNode, BinaryExpData, FunctionDeclData, Type};
 
     #[test]
     fn test_generate_simple_main() {
@@ -218,5 +218,32 @@ mod tests {
         let expected_assembly = ".global _main\n.text\n\n_main:\n\tstp x29, x30, [sp, #-16]!\n\tmov x29, sp\n\tmov x0, #5\n\tmov x0, #10\n\tldp x29, x30, [sp], #16\n\tret\n";
 
         assert_eq!(generator.buffer, expected_assembly);
+    }
+
+    #[test]
+    fn test_codegen_binary_expression() {
+        let ast = AstNode::Programm(vec![AstNode::FunctionDecl(FunctionDeclData {
+            name: "main".to_string(),
+            return_type: Type::Int,
+            parameter: Vec::new(),
+            body: Box::new(AstNode::BlockStatement(vec![AstNode::ReturnStatement(
+                Box::new(AstNode::BinaryExpr(BinaryExpData {
+                    left: Box::new(AstNode::IntLiteralExpr(200)),
+                    right: Box::new(AstNode::IntLiteralExpr(20)),
+                    operator: BinaryOperator::Add,
+                })),
+            )])),
+        })]);
+
+        let mut codegen = Generator::new();
+        let assembly = codegen.generate(ast).unwrap();
+
+        assert!(
+            codegen.buffer.contains(".global _main") || codegen.buffer.contains(".global main")
+        );
+        assert!(codegen.buffer.contains("add"));
+        assert!(codegen.buffer.contains("str"));
+        assert!(codegen.buffer.contains("ldr"));
+        assert!(codegen.buffer.contains("ret"));
     }
 }

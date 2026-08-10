@@ -560,4 +560,45 @@ mod tests {
             })
         );
     }
+
+    #[test]
+    fn test_parse_complex_function_expression() {
+        let tokens = vec![
+            Token::IntKeyword,
+            Token::Identifier("compute".to_string()),
+            Token::LeftParen,
+            Token::RightParen,
+            Token::LeftBrace,
+            Token::Return,
+            Token::IntNumber("10".to_string()),
+            Token::Plus,
+            Token::IntNumber("20".to_string()),
+            Token::Star,
+            Token::IntNumber("2".to_string()),
+            Token::Semicolon,
+            Token::RightBrace,
+        ];
+
+        let mut parser = Parser::new(&tokens);
+        let ast = parser.parse().unwrap();
+
+        let expected = AstNode::Programm(vec![AstNode::FunctionDecl(FunctionDeclData {
+            name: "compute".to_string(),
+            return_type: Type::Int,
+            parameter: Vec::new(),
+            body: Box::new(AstNode::BlockStatement(vec![AstNode::ReturnStatement(
+                Box::new(AstNode::BinaryExpr(BinaryExpData {
+                    left: Box::new(AstNode::IntLiteralExpr(10)),
+                    right: Box::new(AstNode::BinaryExpr(BinaryExpData {
+                        left: Box::new(AstNode::IntLiteralExpr(20)),
+                        right: Box::new(AstNode::IntLiteralExpr(2)),
+                        operator: BinaryOperator::Mul,
+                    })),
+                    operator: BinaryOperator::Add,
+                })),
+            )])),
+        })]);
+
+        assert_eq!(ast, expected);
+    }
 }

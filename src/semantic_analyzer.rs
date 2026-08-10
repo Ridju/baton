@@ -239,4 +239,21 @@ mod tests {
             _ => panic!("Expected InvalidReturnType error"),
         }
     }
+
+    #[test]
+    fn test_semantic_valid_return_type() {
+        let ast = AstNode::Programm(vec![AstNode::FunctionDecl(FunctionDeclData {
+            name: "main".to_string(),
+            return_type: Type::Int,
+            parameter: Vec::new(),
+            body: Box::new(AstNode::BlockStatement(vec![AstNode::ReturnStatement(
+                Box::new(AstNode::IntLiteralExpr(42)),
+            )])),
+        })]);
+
+        let mut analyzer = Analyzer::new();
+        let result = analyzer.analyze(ast);
+
+        assert!(result.is_ok());
+    }
 }
