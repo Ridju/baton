@@ -8,6 +8,11 @@ pub enum Token {
     Identifier(String),
     IntNumber(String),
 
+    Plus,
+    Minus,
+    Star,
+    Slash,
+
     LeftParen,
     RightParen,
     LeftBrace,
@@ -81,6 +86,26 @@ impl<'a> Scanner<'a> {
                 ';' => {
                     self.chars.next();
                     tokens.push(Token::Semicolon);
+                    self.column += 1;
+                }
+                '+' => {
+                    self.chars.next();
+                    tokens.push(Token::Plus);
+                    self.column += 1;
+                }
+                '-' => {
+                    self.chars.next();
+                    tokens.push(Token::Minus);
+                    self.column += 1;
+                }
+                '*' => {
+                    self.chars.next();
+                    tokens.push(Token::Star);
+                    self.column += 1;
+                }
+                '/' => {
+                    self.chars.next();
+                    tokens.push(Token::Slash);
                     self.column += 1;
                 }
                 other => {
@@ -310,6 +335,66 @@ mod tests {
                 line: 1,
                 column: 10,
             })
+        );
+    }
+
+    #[test]
+    fn test_plus_token() {
+        let input = "40 + 2";
+        let mut sc = Scanner::new(input);
+        let result = sc.scan_source().unwrap();
+        assert_eq!(
+            result,
+            vec![
+                Token::IntNumber("40".to_string()),
+                Token::Plus,
+                Token::IntNumber("2".to_string())
+            ]
+        );
+    }
+
+    #[test]
+    fn test_minus_token() {
+        let input = "40 - 2";
+        let mut sc = Scanner::new(input);
+        let result = sc.scan_source().unwrap();
+        assert_eq!(
+            result,
+            vec![
+                Token::IntNumber("40".to_string()),
+                Token::Minus,
+                Token::IntNumber("2".to_string())
+            ]
+        );
+    }
+
+    #[test]
+    fn test_star_token() {
+        let input = "40 * 2";
+        let mut sc = Scanner::new(input);
+        let result = sc.scan_source().unwrap();
+        assert_eq!(
+            result,
+            vec![
+                Token::IntNumber("40".to_string()),
+                Token::Star,
+                Token::IntNumber("2".to_string())
+            ]
+        );
+    }
+
+    #[test]
+    fn test_slash_token() {
+        let input = "40 / 2";
+        let mut sc = Scanner::new(input);
+        let result = sc.scan_source().unwrap();
+        assert_eq!(
+            result,
+            vec![
+                Token::IntNumber("40".to_string()),
+                Token::Slash,
+                Token::IntNumber("2".to_string())
+            ]
         );
     }
 }
