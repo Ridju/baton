@@ -1,6 +1,8 @@
+use std::fmt::Alignment::Right;
 use std::slice::Iter;
 use std::{iter::Peekable, os::macos::raw::stat};
 
+use crate::parser::AstNode::BinaryExpr;
 use crate::parser::ParserError::{NotImplemented, UnexpectedEoF};
 use crate::scanner::Token;
 
@@ -42,12 +44,28 @@ pub struct FunctionDeclData {
 }
 
 #[derive(Debug, PartialEq, Clone)]
+pub enum BinaryOperator {
+    Add,
+    Sub,
+    Mul,
+    Div,
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct BinaryExpData {
+    pub left: Box<AstNode>,
+    pub right: Box<AstNode>,
+    pub operator: BinaryOperator,
+}
+
+#[derive(Debug, PartialEq, Clone)]
 pub enum AstNode {
     Programm(Vec<AstNode>),
     FunctionDecl(FunctionDeclData),
     ReturnStatement(Box<AstNode>),
     IntLiteralExpr(i16),
     BlockStatement(Vec<AstNode>),
+    BinaryExpr(BinaryExpData),
 }
 
 pub struct Parser<'a> {
@@ -201,25 +219,11 @@ impl<'a> Parser<'a> {
     fn parse_return_statement(&mut self) -> Result<AstNode, ParserError> {
         self.tokens.next();
 
-        let expr_node = match self.tokens.peek() {
-            Some(Token::IntNumber(number)) => {
-                let num_str = number.clone();
-                self.tokens.next();
-                let num = number
-                    .parse::<i16>()
-                    .map_err(|_| ParserError::InvalidIntLiteral(num_str))?;
-                AstNode::IntLiteralExpr(num)
-            }
-            Some(Token::Semicolon) => AstNode::IntLiteralExpr(0),
-            Some(other) => {
-                return Err(ParserError::UnexpectedToken {
-                    expected: "int literal or ';'".to_string(),
-                    found: format!("{:?}", other),
-                });
-            }
-            None => return Err(ParserError::UnexpectedEoF),
+        let expr_node = if let Some(Token::Semicolon) = self.tokens.peek() {
+            AstNode::IntLiteralExpr(0)
+        } else {
+            self.parse_expression()?
         };
-
         match self.tokens.next() {
             Some(Token::Semicolon) => {}
             Some(other) => {
@@ -232,6 +236,73 @@ impl<'a> Parser<'a> {
         }
 
         Ok(AstNode::ReturnStatement(Box::new(expr_node)))
+    }
+
+    fn parse_factor(&mut self) -> Result<AstNode, ParserError> {
+        match self.tokens.next() {
+            Some(Token::IntNumber(num_str)) => {
+                let number = num_str.clone();
+                let num = number
+                    .parse::<i16>()
+                    .map_err(|_| ParserError::InvalidIntLiteral(number))?;
+                Ok(AstNode::IntLiteralExpr(num))
+            }
+            Some(other) => {
+                return Err(ParserError::UnexpectedToken {
+                    expected: "Int Number".to_string(),
+                    found: format!("{:?}", other),
+                });
+            }
+            None => return Err(ParserError::UnexpectedEoF),
+        }
+    }
+
+    fn parse_term(&mut self) -> Result<AstNode, ParserError> {
+        let mut left = self.parse_factor()?;
+        loop {
+            let operator = match self.tokens.peek() {
+                Some(Token::Star) => {
+                    self.tokens.next();
+                    BinaryOperator::Mul
+                }
+                Some(Token::Slash) => {
+                    self.tokens.next();
+                    BinaryOperator::Div
+                }
+                _ => break,
+            };
+            let right = self.parse_factor()?;
+            left = AstNode::BinaryExpr(BinaryExpData {
+                left: Box::new(left),
+                right: Box::new(right),
+                operator,
+            })
+        }
+        Ok(left)
+    }
+
+    fn parse_expression(&mut self) -> Result<AstNode, ParserError> {
+        let mut left = self.parse_term()?;
+        loop {
+            let operator = match self.tokens.peek() {
+                Some(Token::Plus) => {
+                    self.tokens.next();
+                    BinaryOperator::Add
+                }
+                Some(Token::Minus) => {
+                    self.tokens.next();
+                    BinaryOperator::Sub
+                }
+                _ => break,
+            };
+            let right = self.parse_term()?;
+            left = AstNode::BinaryExpr(BinaryExpData {
+                left: Box::new(left),
+                right: Box::new(right),
+                operator,
+            })
+        }
+        Ok(left)
     }
 }
 

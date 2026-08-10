@@ -68,24 +68,15 @@ impl Analyzer {
                     }
                 };
 
-                match *data {
-                    AstNode::IntLiteralExpr(_) => {
-                        if *return_type == Type::Int {
-                            return Ok(());
-                        }
-                        return Err(SemanticError::NotMatchingReturnType(format!(
-                            "Function returns type '{:?}' but expression is of type '{:?}'",
-                            return_type,
-                            Type::Int
-                        )));
-                    }
-                    other => {
-                        return Err(SemanticError::InvalidReturnType(format!(
-                            "Return type for expression {:?} is not allowed",
-                            other
-                        )));
-                    }
+                let expr_type = self.analyze_expr(&data)?;
+                if expr_type == *return_type {
+                    return Ok(());
                 }
+
+                Err(SemanticError::NotMatchingReturnType(format!(
+                    "Function returns type '{:?}' but expression is of type '{:?}'",
+                    return_type, expr_type
+                )))
             }
             AstNode::IntLiteralExpr(_) => Ok(()),
             AstNode::BlockStatement(nodes) => {
@@ -102,6 +93,29 @@ impl Analyzer {
                     node
                 )));
             }
+        }
+    }
+
+    fn analyze_expr(&mut self, node: &AstNode) -> Result<Type, SemanticError> {
+        match node {
+            AstNode::IntLiteralExpr(_) => Ok(Type::Int),
+            AstNode::BinaryExpr(data) => {
+                let left_type = self.analyze_expr(&data.left)?;
+                let right_type = self.analyze_expr(&data.right)?;
+
+                if left_type != Type::Int || right_type != Type::Int {
+                    return Err(SemanticError::NotMatchingReturnType(format!(
+                        "Binary expression operands must be of type Int, found '{:?}' and '{:?}'",
+                        left_type, right_type
+                    )));
+                }
+
+                Ok(Type::Int)
+            }
+            other => Err(SemanticError::InvalidReturnType(format!(
+                "Expression type not supported: {:?}",
+                other
+            ))),
         }
     }
 
