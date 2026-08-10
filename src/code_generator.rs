@@ -1,4 +1,4 @@
-use crate::parser::AstNode;
+use crate::parser::{AstNode, BinaryOperator};
 use std::fs;
 use std::io;
 use std::path::Path;
@@ -52,6 +52,30 @@ impl Generator {
                 }
                 Ok(())
             }
+            AstNode::BinaryExpr(bin_data) => {
+                self.generate(*bin_data.left)?;
+                self.buffer.push_str("\tstr x0, [sp, #-16]!\n");
+
+                self.generate(*bin_data.right)?;
+
+                self.buffer.push_str("\tldr x1, [sp], #16\n");
+
+                match bin_data.operator {
+                    BinaryOperator::Add => {
+                        self.buffer.push_str("\tadd x0, x1, x0\n");
+                    }
+                    BinaryOperator::Sub => {
+                        self.buffer.push_str("\tsub x0, x1, x0\n");
+                    }
+                    BinaryOperator::Mul => {
+                        self.buffer.push_str("\tmul x0, x1, x0\n");
+                    }
+                    BinaryOperator::Div => {
+                        self.buffer.push_str("\tdiv x0, x1, x0\n");
+                    }
+                }
+                Ok(())
+            }
         }
     }
 
@@ -64,13 +88,11 @@ impl Generator {
         input_file: &str,
         output_name: &str,
     ) -> Result<(), GeneratorError> {
-        // 1. Output-Verzeichnis erstellen
         let output_dir = Path::new("output");
         fs::create_dir_all(output_dir).map_err(|e| {
             GeneratorError::GeneralError(format!("Could not create output directory: {}", e))
         })?;
 
-        // 2. Automatisches Ableiten der .s-Datei aus dem Input-Dateinamen
         let input_path = Path::new(input_file);
         let file_stem = input_path
             .file_stem()
@@ -79,15 +101,12 @@ impl Generator {
 
         let s_filename = format!("{}.s", file_stem);
 
-        // 3. Pfade für den output-Ordner zusammenbauen
         let s_path = output_dir.join(&s_filename);
         let output_path = output_dir.join(output_name);
 
-        // 4. Assembler-Datei schreiben
         self.write_to_file(s_path.to_str().unwrap())
             .map_err(|e| GeneratorError::GeneralError(format!("Could not write file: {}", e)))?;
 
-        // 5. C-Compiler aufrufen
         let status = Command::new("cc")
             .arg(&s_path)
             .arg("-o")
@@ -97,7 +116,6 @@ impl Generator {
                 GeneratorError::GeneralError(format!("Compiler could not be started: {}", e))
             })?;
 
-        // 6. Optional: Die temporäre Assembler-Datei im output-Ordner wieder löschen
         let _ = fs::remove_file(&s_path);
 
         if status.success() {

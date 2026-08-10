@@ -60,7 +60,7 @@ impl Analyzer {
             }
             AstNode::ReturnStatement(data) => {
                 let return_type = match &self.current_return_type {
-                    Some(rt) => rt,
+                    Some(rt) => rt.clone(),
                     None => {
                         return Err(SemanticError::InvalidReturnType(
                             "Return statement outside of function".to_string(),
@@ -69,7 +69,7 @@ impl Analyzer {
                 };
 
                 let expr_type = self.analyze_expr(&data)?;
-                if expr_type == *return_type {
+                if expr_type == return_type {
                     return Ok(());
                 }
 

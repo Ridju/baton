@@ -555,7 +555,7 @@ mod tests {
         assert_eq!(
             result,
             Err(ParserError::UnexpectedToken {
-                expected: "int literal or ';'".to_string(),
+                expected: "Int Number".to_string(),
                 found: "LeftParen".to_string(),
             })
         );
