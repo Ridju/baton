@@ -1,6 +1,6 @@
 use std::fmt::Alignment::Right;
+use std::iter::Peekable;
 use std::slice::Iter;
-use std::{iter::Peekable, os::macos::raw::stat};
 
 use crate::parser::AstNode::BinaryExpr;
 use crate::parser::ParserError::{NotImplemented, UnexpectedEoF};
@@ -31,8 +31,8 @@ impl Type {
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Parameter {
-    name: String,
-    param_typ: Type,
+    pub name: String,
+    pub param_typ: Type,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -59,6 +59,19 @@ pub struct BinaryExpData {
 }
 
 #[derive(Debug, PartialEq, Clone)]
+pub struct VarDeclData {
+    pub name: String,
+    pub var_typ: Type,
+    pub initializer: Option<Box<AstNode>>,
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct AssignmentData {
+    pub name: String,
+    pub value: Box<AstNode>,
+}
+
+#[derive(Debug, PartialEq, Clone)]
 pub enum AstNode {
     Programm(Vec<AstNode>),
     FunctionDecl(FunctionDeclData),
@@ -66,6 +79,10 @@ pub enum AstNode {
     IntLiteralExpr(i16),
     BlockStatement(Vec<AstNode>),
     BinaryExpr(BinaryExpData),
+
+    VariableExpr(String),
+    VarDeclStatement(VarDeclData),
+    AssignmentStatement(AssignmentData),
 }
 
 pub struct Parser<'a> {
@@ -203,6 +220,25 @@ impl<'a> Parser<'a> {
                 Some(Token::Return) => {
                     statements.push(self.parse_return_statement()?);
                 }
+                Some(Token::IntKeyword) => {
+                    statements.push(self.parse_var_decl()?);
+                }
+                Some(Token::Identifier(_)) => {
+                    let mut clone = self.tokens.clone();
+                    clone.next();
+                    match clone.peek() {
+                        Some(Token::Equal) => {
+                            statements.push(self.parse_assignment()?);
+                        }
+                        Some(other) => {
+                            return Err(ParserError::UnexpectedToken {
+                                expected: "'='".to_string(),
+                                found: format!("{:?}", other),
+                            });
+                        }
+                        None => return Err(ParserError::UnexpectedEoF),
+                    }
+                }
                 Some(other) => {
                     return Err(ParserError::UnexpectedToken {
                         expected: "return statment or '}'".to_string(),
@@ -214,6 +250,45 @@ impl<'a> Parser<'a> {
         }
 
         Ok(Box::new(AstNode::BlockStatement(statements)))
+    }
+
+    fn parse_var_decl(&mut self) -> Result<AstNode, ParserError> {
+        let var_typ = Type::get_from_token(self.tokens.next().unwrap())?;
+        let name = match self.tokens.next() {
+            Some(Token::Identifier(name)) => name.clone(),
+            Some(other) => {
+                return Err(ParserError::UnexpectedToken {
+                    expected: "identifier".to_string(),
+                    found: format!("{:?}", other),
+                });
+            }
+            None => return Err(ParserError::UnexpectedEoF),
+        };
+
+        let initializer = match self.tokens.peek() {
+            Some(Token::Equal) => {
+                self.tokens.next();
+                Some(Box::new(self.parse_expression()?))
+            }
+            _ => None,
+        };
+
+        match self.tokens.next() {
+            Some(Token::Semicolon) => {}
+            Some(other) => {
+                return Err(ParserError::UnexpectedToken {
+                    expected: "';'".to_string(),
+                    found: format!("{:?}", other),
+                });
+            }
+            None => return Err(ParserError::UnexpectedEoF),
+        }
+
+        Ok(AstNode::VarDeclStatement(VarDeclData {
+            name,
+            var_typ,
+            initializer,
+        }))
     }
 
     fn parse_return_statement(&mut self) -> Result<AstNode, ParserError> {
@@ -238,6 +313,39 @@ impl<'a> Parser<'a> {
         Ok(AstNode::ReturnStatement(Box::new(expr_node)))
     }
 
+    fn parse_assignment(&mut self) -> Result<AstNode, ParserError> {
+        let name = match self.tokens.next() {
+            Some(Token::Identifier(name)) => name.clone(),
+            _ => unreachable!(),
+        };
+
+        match self.tokens.next() {
+            Some(Token::Equal) => {}
+            Some(other) => {
+                return Err(ParserError::UnexpectedToken {
+                    expected: "'='".to_string(),
+                    found: format!("{:?}", other),
+                });
+            }
+            None => return Err(ParserError::UnexpectedEoF),
+        }
+
+        let value = Box::new(self.parse_expression()?);
+
+        match self.tokens.next() {
+            Some(Token::Semicolon) => {}
+            Some(other) => {
+                return Err(ParserError::UnexpectedToken {
+                    expected: "';'".to_string(),
+                    found: format!("{:?}", other),
+                });
+            }
+            None => return Err(ParserError::UnexpectedEoF),
+        }
+
+        Ok(AstNode::AssignmentStatement(AssignmentData { name, value }))
+    }
+
     fn parse_factor(&mut self) -> Result<AstNode, ParserError> {
         match self.tokens.next() {
             Some(Token::IntNumber(num_str)) => {
@@ -247,6 +355,7 @@ impl<'a> Parser<'a> {
                     .map_err(|_| ParserError::InvalidIntLiteral(number))?;
                 Ok(AstNode::IntLiteralExpr(num))
             }
+            Some(Token::Identifier(name)) => Ok(AstNode::VariableExpr(name.clone())),
             Some(other) => {
                 return Err(ParserError::UnexpectedToken {
                     expected: "Int Number".to_string(),

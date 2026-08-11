@@ -1,4 +1,5 @@
 use crate::parser::{AstNode, BinaryOperator};
+use std::collections::HashMap;
 use std::fs;
 use std::io;
 use std::path::Path;
@@ -12,12 +13,16 @@ pub enum GeneratorError {
 #[derive(Debug)]
 pub struct Generator {
     buffer: String,
+    local_vars: HashMap<String, i32>,
+    stack_offset: i32,
 }
 
 impl Generator {
     pub fn new() -> Generator {
         Generator {
             buffer: String::new(),
+            local_vars: HashMap::new(),
+            stack_offset: -8,
         }
     }
 
@@ -31,9 +36,15 @@ impl Generator {
                 Ok(())
             }
             AstNode::FunctionDecl(func_data) => {
+                self.local_vars.clear();
+                self.stack_offset = -8;
+
                 self.buffer.push_str(&format!("_{}:\n", func_data.name));
                 self.buffer
                     .push_str("\tstp x29, x30, [sp, #-16]!\n\tmov x29, sp\n");
+
+                self.buffer.push_str("\tsub sp, sp, #128\n");
+
                 self.generate(*func_data.body)?;
                 Ok(())
             }
@@ -74,6 +85,42 @@ impl Generator {
                         self.buffer.push_str("\tdiv x0, x1, x0\n");
                     }
                 }
+                Ok(())
+            }
+            AstNode::VarDeclStatement(var_data) => {
+                if let Some(init) = var_data.initializer {
+                    self.generate(*init)?;
+                } else {
+                    self.buffer.push_str("\tmov x0, #0\n");
+                }
+
+                let offset = self.stack_offset;
+                self.local_vars.insert(var_data.name.clone(), offset);
+                self.stack_offset -= 0;
+
+                self.buffer
+                    .push_str(&format!("\tstr x0, [x29, #{}]\n", offset));
+                Ok(())
+            }
+            AstNode::AssignmentStatement(assign_data) => {
+                self.generate(*assign_data.value)?;
+
+                let offset = self.local_vars.get(&assign_data.name).unwrap_or_else(|| {
+                    panic!(
+                        "Undefined variable '{}' in code generator",
+                        assign_data.name
+                    );
+                });
+                self.buffer
+                    .push_str(&format!("\tstr x0, [x29, #{}]\n", offset));
+                Ok(())
+            }
+            AstNode::VariableExpr(name) => {
+                let offset = self.local_vars.get(&name).unwrap_or_else(|| {
+                    panic!("Undefined variable '{}' in code generator", name);
+                });
+                self.buffer
+                    .push_str(&format!("\tldr x0, [x29, #{}]\n", offset));
                 Ok(())
             }
         }
@@ -147,7 +194,7 @@ mod tests {
         let mut generator = Generator::new();
         generator.generate(ast).unwrap();
 
-        let expected_assembly = ".global _main\n.text\n\n_main:\n\tstp x29, x30, [sp, #-16]!\n\tmov x29, sp\n\tmov x0, #42\n\tldp x29, x30, [sp], #16\n\tret\n";
+        let expected_assembly = ".global _main\n.text\n\n_main:\n\tstp x29, x30, [sp, #-16]!\n\tmov x29, sp\n\tsub sp, sp, #64\n\tmov x0, #42\n\tldp x29, x30, [sp], #16\n\tret\n";
 
         assert_eq!(generator.buffer, expected_assembly);
     }
@@ -166,7 +213,7 @@ mod tests {
         let mut generator = Generator::new();
         generator.generate(ast).unwrap();
 
-        let expected_assembly = ".global _main\n.text\n\n_main:\n\tstp x29, x30, [sp, #-16]!\n\tmov x29, sp\n\tmov x0, #0\n\tldp x29, x30, [sp], #16\n\tret\n";
+        let expected_assembly = ".global _main\n.text\n\n_main:\n\tstp x29, x30, [sp, #-16]!\n\tmov x29, sp\n\tsub sp, sp, #64\n\tmov x0, #0\n\tldp x29, x30, [sp], #16\n\tret\n";
 
         assert_eq!(generator.buffer, expected_assembly);
     }
@@ -195,7 +242,7 @@ mod tests {
         let mut generator = Generator::new();
         generator.generate(ast).unwrap();
 
-        let expected_assembly = ".global _main\n.text\n\n_main:\n\tstp x29, x30, [sp, #-16]!\n\tmov x29, sp\n\tmov x0, #0\n\tldp x29, x30, [sp], #16\n\tret\n_helper_func:\n\tstp x29, x30, [sp, #-16]!\n\tmov x29, sp\n\tmov x0, #100\n\tldp x29, x30, [sp], #16\n\tret\n";
+        let expected_assembly = ".global _main\n.text\n\n_main:\n\tstp x29, x30, [sp, #-16]!\n\tmov x29, sp\n\tsub sp, sp, #64\n\tmov x0, #0\n\tldp x29, x30, [sp], #16\n\tret\n_helper_func:\n\tstp x29, x30, [sp, #-16]!\n\tmov x29, sp\n\tsub sp, sp, #64\n\tmov x0, #100\n\tldp x29, x30, [sp], #16\n\tret\n";
 
         assert_eq!(generator.buffer, expected_assembly);
     }
@@ -215,7 +262,7 @@ mod tests {
         let mut generator = Generator::new();
         generator.generate(ast).unwrap();
 
-        let expected_assembly = ".global _main\n.text\n\n_main:\n\tstp x29, x30, [sp, #-16]!\n\tmov x29, sp\n\tmov x0, #5\n\tmov x0, #10\n\tldp x29, x30, [sp], #16\n\tret\n";
+        let expected_assembly = ".global _main\n.text\n\n_main:\n\tstp x29, x30, [sp, #-16]!\n\tmov x29, sp\n\tsub sp, sp, #64\n\tmov x0, #5\n\tmov x0, #10\n\tldp x29, x30, [sp], #16\n\tret\n";
 
         assert_eq!(generator.buffer, expected_assembly);
     }
