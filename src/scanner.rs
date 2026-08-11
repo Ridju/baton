@@ -12,6 +12,7 @@ pub enum Token {
     Minus,
     Star,
     Slash,
+    Equal,
 
     LeftParen,
     RightParen,
@@ -106,6 +107,11 @@ impl<'a> Scanner<'a> {
                 '/' => {
                     self.chars.next();
                     tokens.push(Token::Slash);
+                    self.column += 1;
+                }
+                '=' => {
+                    self.chars.next();
+                    tokens.push(Token::Equal);
                     self.column += 1;
                 }
                 other => {
@@ -394,6 +400,23 @@ mod tests {
                 Token::IntNumber("40".to_string()),
                 Token::Slash,
                 Token::IntNumber("2".to_string())
+            ]
+        );
+    }
+
+    #[test]
+    fn test_variable() {
+        let input = "int i = 0;";
+        let mut sc = Scanner::new(input);
+        let result = sc.scan_source().unwrap();
+        assert_eq!(
+            result,
+            vec![
+                Token::IntKeyword,
+                Token::Identifier("i".to_string()),
+                Token::Equal,
+                Token::IntNumber("0".to_string()),
+                Token::Semicolon
             ]
         );
     }
