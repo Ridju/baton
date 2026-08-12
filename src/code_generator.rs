@@ -195,7 +195,7 @@ mod tests {
         let mut generator = Generator::new();
         generator.generate(ast).unwrap();
 
-        let expected_assembly = ".global _main\n.text\n\n_main:\n\tstp x29, x30, [sp, #-16]!\n\tmov x29, sp\n\tsub sp, sp, #64\n\tmov x0, #42\n\tldp x29, x30, [sp], #16\n\tret\n";
+        let expected_assembly = ".global _main\n.text\n\n_main:\n\tstp x29, x30, [sp, #-16]!\n\tmov x29, sp\n\tsub sp, sp, #128\n\tmov x0, #42\n\tmov sp, x29\n\tldp x29, x30, [sp], #16\n\tret\n";
 
         assert_eq!(generator.buffer, expected_assembly);
     }
@@ -213,8 +213,7 @@ mod tests {
 
         let mut generator = Generator::new();
         generator.generate(ast).unwrap();
-
-        let expected_assembly = ".global _main\n.text\n\n_main:\n\tstp x29, x30, [sp, #-16]!\n\tmov x29, sp\n\tsub sp, sp, #64\n\tmov x0, #0\n\tldp x29, x30, [sp], #16\n\tret\n";
+        let expected_assembly = ".global _main\n.text\n\n_main:\n\tstp x29, x30, [sp, #-16]!\n\tmov x29, sp\n\tsub sp, sp, #128\n\tmov x0, #0\n\tmov sp, x29\n\tldp x29, x30, [sp], #16\n\tret\n";
 
         assert_eq!(generator.buffer, expected_assembly);
     }
@@ -243,7 +242,7 @@ mod tests {
         let mut generator = Generator::new();
         generator.generate(ast).unwrap();
 
-        let expected_assembly = ".global _main\n.text\n\n_main:\n\tstp x29, x30, [sp, #-16]!\n\tmov x29, sp\n\tsub sp, sp, #64\n\tmov x0, #0\n\tldp x29, x30, [sp], #16\n\tret\n_helper_func:\n\tstp x29, x30, [sp, #-16]!\n\tmov x29, sp\n\tsub sp, sp, #64\n\tmov x0, #100\n\tldp x29, x30, [sp], #16\n\tret\n";
+        let expected_assembly = ".global _main\n.text\n\n_main:\n\tstp x29, x30, [sp, #-16]!\n\tmov x29, sp\n\tsub sp, sp, #128\n\tmov x0, #0\n\tmov sp, x29\n\tldp x29, x30, [sp], #16\n\tret\n_helper_func:\n\tstp x29, x30, [sp, #-16]!\n\tmov x29, sp\n\tsub sp, sp, #128\n\tmov x0, #100\n\tmov sp, x29\n\tldp x29, x30, [sp], #16\n\tret\n";
 
         assert_eq!(generator.buffer, expected_assembly);
     }
@@ -263,7 +262,7 @@ mod tests {
         let mut generator = Generator::new();
         generator.generate(ast).unwrap();
 
-        let expected_assembly = ".global _main\n.text\n\n_main:\n\tstp x29, x30, [sp, #-16]!\n\tmov x29, sp\n\tsub sp, sp, #64\n\tmov x0, #5\n\tmov x0, #10\n\tldp x29, x30, [sp], #16\n\tret\n";
+        let expected_assembly = ".global _main\n.text\n\n_main:\n\tstp x29, x30, [sp, #-16]!\n\tmov x29, sp\n\tsub sp, sp, #128\n\tmov x0, #5\n\tmov x0, #10\n\tmov sp, x29\n\tldp x29, x30, [sp], #16\n\tret\n";
 
         assert_eq!(generator.buffer, expected_assembly);
     }
