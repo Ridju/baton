@@ -50,6 +50,7 @@ impl Generator {
             }
             AstNode::ReturnStatement(node) => {
                 self.generate(*node)?;
+                self.buffer.push_str("\tmov sp, x29\n");
                 self.buffer.push_str("\tldp x29, x30, [sp], #16\n\tret\n");
                 Ok(())
             }
@@ -82,7 +83,7 @@ impl Generator {
                         self.buffer.push_str("\tmul x0, x1, x0\n");
                     }
                     BinaryOperator::Div => {
-                        self.buffer.push_str("\tdiv x0, x1, x0\n");
+                        self.buffer.push_str("\tsdiv x0, x1, x0\n");
                     }
                 }
                 Ok(())
@@ -96,7 +97,7 @@ impl Generator {
 
                 let offset = self.stack_offset;
                 self.local_vars.insert(var_data.name.clone(), offset);
-                self.stack_offset -= 0;
+                self.stack_offset -= 8;
 
                 self.buffer
                     .push_str(&format!("\tstr x0, [x29, #{}]\n", offset));
