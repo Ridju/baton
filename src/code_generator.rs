@@ -343,4 +343,43 @@ mod tests {
         assert!(codegen.buffer.contains("ldr"));
         assert!(codegen.buffer.contains("ret"));
     }
+
+    #[test]
+    fn test_codegen_if_else_statement() {
+        use crate::parser::{BinaryExpData, BinaryOperator, IfElseData};
+
+        let ast = AstNode::Programm(vec![AstNode::FunctionDecl(FunctionDeclData {
+            name: "main".to_string(),
+            return_type: Type::Int,
+            parameter: Vec::new(),
+            body: Box::new(AstNode::BlockStatement(vec![AstNode::IfElseStatement(
+                IfElseData {
+                    condition_expr: Box::new(AstNode::BinaryExpr(BinaryExpData {
+                        left: Box::new(AstNode::IntLiteralExpr(10)),
+                        right: Box::new(AstNode::IntLiteralExpr(5)),
+                        operator: BinaryOperator::GreaterThan,
+                    })),
+                    if_branch: Box::new(AstNode::BlockStatement(vec![AstNode::ReturnStatement(
+                        Box::new(AstNode::IntLiteralExpr(1)),
+                    )])),
+                    else_branch: Some(Box::new(AstNode::BlockStatement(vec![
+                        AstNode::ReturnStatement(Box::new(AstNode::IntLiteralExpr(0))),
+                    ]))),
+                },
+            )])),
+        })]);
+
+        let mut generator = Generator::new();
+        generator.generate(ast).unwrap();
+
+        let assembly = generator.buffer;
+
+        // Überprüfen, ob wichtige ARM64-Instruktionen für If-Else und Vergleiche generiert wurden
+        assert!(assembly.contains("cmp"));
+        assert!(assembly.contains("cset"));
+        assert!(assembly.contains("gt"));
+        assert!(assembly.contains("cbz"));
+        assert!(assembly.contains(".L_else_0"));
+        assert!(assembly.contains(".L_end_0"));
+    }
 }

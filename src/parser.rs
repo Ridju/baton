@@ -806,4 +806,97 @@ mod tests {
 
         assert_eq!(ast, expected);
     }
+
+    #[test]
+    fn test_parse_if_else_statement() {
+        let tokens = vec![
+            Token::IntKeyword,
+            Token::Identifier("main".to_string()),
+            Token::LeftParen,
+            Token::RightParen,
+            Token::LeftBrace,
+            Token::If,
+            Token::LeftParen,
+            Token::IntNumber("5".to_string()),
+            Token::LessThan,
+            Token::IntNumber("10".to_string()),
+            Token::RightParen,
+            Token::LeftBrace,
+            Token::Return,
+            Token::IntNumber("1".to_string()),
+            Token::Semicolon,
+            Token::RightBrace,
+            Token::Else,
+            Token::LeftBrace,
+            Token::Return,
+            Token::IntNumber("0".to_string()),
+            Token::Semicolon,
+            Token::RightBrace,
+            Token::RightBrace,
+        ];
+
+        let mut parser = Parser::new(&tokens);
+        let ast = parser.parse().unwrap();
+
+        let expected = AstNode::Programm(vec![AstNode::FunctionDecl(FunctionDeclData {
+            name: "main".to_string(),
+            return_type: Type::Int,
+            parameter: Vec::new(),
+            body: Box::new(AstNode::BlockStatement(vec![AstNode::IfElseStatement(
+                IfElseData {
+                    condition_expr: Box::new(AstNode::BinaryExpr(BinaryExpData {
+                        left: Box::new(AstNode::IntLiteralExpr(5)),
+                        right: Box::new(AstNode::IntLiteralExpr(10)),
+                        operator: BinaryOperator::LessThan,
+                    })),
+                    if_branch: Box::new(AstNode::BlockStatement(vec![AstNode::ReturnStatement(
+                        Box::new(AstNode::IntLiteralExpr(1)),
+                    )])),
+                    else_branch: Some(Box::new(AstNode::BlockStatement(vec![
+                        AstNode::ReturnStatement(Box::new(AstNode::IntLiteralExpr(0))),
+                    ]))),
+                },
+            )])),
+        })]);
+
+        assert_eq!(ast, expected);
+    }
+
+    #[test]
+    fn test_parse_if_without_else() {
+        let tokens = vec![
+            Token::IntKeyword,
+            Token::Identifier("main".to_string()),
+            Token::LeftParen,
+            Token::RightParen,
+            Token::LeftBrace,
+            Token::If,
+            Token::LeftParen,
+            Token::Identifier("x".to_string()),
+            Token::DoubleEqual,
+            Token::IntNumber("0".to_string()),
+            Token::RightParen,
+            Token::LeftBrace,
+            Token::Return,
+            Token::IntNumber("42".to_string()),
+            Token::Semicolon,
+            Token::RightBrace,
+            Token::RightBrace,
+        ];
+
+        let mut parser = Parser::new(&tokens);
+        let ast = parser.parse().unwrap();
+
+        if let AstNode::Programm(nodes) = ast {
+            if let AstNode::FunctionDecl(func) = &nodes[0] {
+                if let AstNode::BlockStatement(stmts) = &*func.body {
+                    if let AstNode::IfElseStatement(if_data) = &stmts[0] {
+                        assert!(if_data.else_branch.is_none());
+                        return;
+                    }
+                }
+            }
+        }
+        panic!("AST structure did not match expected IfElseStatement layout");
+    }
 }

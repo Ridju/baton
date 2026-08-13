@@ -357,4 +357,59 @@ mod tests {
 
         assert!(result.is_ok());
     }
+
+    #[test]
+    fn test_semantic_valid_if_else() {
+        let ast = AstNode::Programm(vec![AstNode::FunctionDecl(FunctionDeclData {
+            name: "main".to_string(),
+            return_type: Type::Int,
+            parameter: Vec::new(),
+            body: Box::new(AstNode::BlockStatement(vec![
+                AstNode::VarDeclStatement(crate::parser::VarDeclData {
+                    name: "x".to_string(),
+                    var_typ: Type::Int,
+                    initializer: Some(Box::new(AstNode::IntLiteralExpr(10))),
+                }),
+                AstNode::IfElseStatement(crate::parser::IfElseData {
+                    condition_expr: Box::new(AstNode::BinaryExpr(crate::parser::BinaryExpData {
+                        left: Box::new(AstNode::VariableExpr("x".to_string())),
+                        right: Box::new(AstNode::IntLiteralExpr(5)),
+                        operator: crate::parser::BinaryOperator::GreaterThan,
+                    })),
+                    if_branch: Box::new(AstNode::BlockStatement(vec![AstNode::ReturnStatement(
+                        Box::new(AstNode::IntLiteralExpr(1)),
+                    )])),
+                    else_branch: Some(Box::new(AstNode::BlockStatement(vec![
+                        AstNode::ReturnStatement(Box::new(AstNode::IntLiteralExpr(0))),
+                    ]))),
+                }),
+            ])),
+        })]);
+
+        let mut analyzer = Analyzer::new();
+        let result = analyzer.analyze(ast);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_semantic_error_undefined_variable_in_if_condition() {
+        let ast = AstNode::Programm(vec![AstNode::FunctionDecl(FunctionDeclData {
+            name: "main".to_string(),
+            return_type: Type::Int,
+            parameter: Vec::new(),
+            body: Box::new(AstNode::BlockStatement(vec![AstNode::IfElseStatement(
+                crate::parser::IfElseData {
+                    condition_expr: Box::new(AstNode::VariableExpr("undefined_var".to_string())),
+                    if_branch: Box::new(AstNode::BlockStatement(vec![AstNode::ReturnStatement(
+                        Box::new(AstNode::IntLiteralExpr(0)),
+                    )])),
+                    else_branch: None,
+                },
+            )])),
+        })]);
+
+        let mut analyzer = Analyzer::new();
+        let result = analyzer.analyze(ast);
+        assert!(matches!(result, Err(SemanticError::UndefinedVariable(_))));
+    }
 }
