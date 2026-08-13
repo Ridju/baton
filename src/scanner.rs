@@ -13,6 +13,11 @@ pub enum Token {
     Star,
     Slash,
     Equal,
+    LessThan,
+    GreaterThan,
+    LessOrEqual,
+    GreaterOrEqual,
+    DoubleEqual,
 
     LeftParen,
     RightParen,
@@ -20,6 +25,9 @@ pub enum Token {
     RightBrace,
 
     Semicolon,
+
+    If,
+    Else,
 }
 
 #[derive(Debug, PartialEq)]
@@ -111,8 +119,36 @@ impl<'a> Scanner<'a> {
                 }
                 '=' => {
                     self.chars.next();
-                    tokens.push(Token::Equal);
                     self.column += 1;
+                    if self.chars.peek() == Some(&'=') {
+                        self.chars.next();
+                        tokens.push(Token::DoubleEqual);
+                        self.column += 1;
+                    } else {
+                        tokens.push(Token::Equal);
+                    }
+                }
+                '<' => {
+                    self.chars.next();
+                    self.column += 1;
+                    if self.chars.peek() == Some(&'=') {
+                        self.chars.next();
+                        tokens.push(Token::LessOrEqual);
+                        self.column += 1;
+                    } else {
+                        tokens.push(Token::LessThan);
+                    }
+                }
+                '>' => {
+                    self.chars.next();
+                    self.column += 1;
+                    if self.chars.peek() == Some(&'=') {
+                        self.chars.next();
+                        tokens.push(Token::GreaterOrEqual);
+                        self.column += 1;
+                    } else {
+                        tokens.push(Token::GreaterThan);
+                    }
                 }
                 other => {
                     return Err(ScannerError {
@@ -142,6 +178,8 @@ impl<'a> Scanner<'a> {
         let token = match token_string.as_str() {
             "return" => Token::Return,
             "int" => Token::IntKeyword,
+            "if" => Token::If,
+            "else" => Token::Else,
             _ => Token::Identifier(token_string),
         };
 
@@ -419,5 +457,46 @@ mod tests {
                 Token::Semicolon
             ]
         );
+    }
+
+    #[test]
+    fn test_if_else() {
+        let input = "if(a==1){}else{}";
+        let mut sc = Scanner::new(input);
+        let result = sc.scan_source().unwrap();
+        assert_eq!(
+            result,
+            vec![
+                Token::If,
+                Token::LeftParen,
+                Token::Identifier("a".to_string()),
+                Token::DoubleEqual,
+                Token::IntNumber("1".to_string()),
+                Token::RightParen,
+                Token::LeftBrace,
+                Token::RightBrace,
+                Token::Else,
+                Token::LeftBrace,
+                Token::RightBrace
+            ]
+        );
+    }
+
+    #[test]
+    fn test_greater_less_equals() {
+        let input = "<= >= == < >";
+        let mut sc = Scanner::new(input);
+        let result = sc.scan_source().unwrap();
+
+        assert_eq!(
+            result,
+            vec![
+                Token::LessOrEqual,
+                Token::GreaterOrEqual,
+                Token::DoubleEqual,
+                Token::LessThan,
+                Token::GreaterThan
+            ]
+        )
     }
 }
