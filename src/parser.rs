@@ -49,6 +49,11 @@ pub enum BinaryOperator {
     Sub,
     Mul,
     Div,
+    DoubleEqual,
+    LessThan,
+    GreaterThan,
+    LessOrEqual,
+    GreaterOrEqual,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -72,6 +77,13 @@ pub struct AssignmentData {
 }
 
 #[derive(Debug, PartialEq, Clone)]
+pub struct IfElseData {
+    pub condition_expr: Box<AstNode>,
+    pub if_branch: Box<AstNode>,
+    pub else_branch: Option<Box<AstNode>>,
+}
+
+#[derive(Debug, PartialEq, Clone)]
 pub enum AstNode {
     Programm(Vec<AstNode>),
     FunctionDecl(FunctionDeclData),
@@ -79,7 +91,7 @@ pub enum AstNode {
     IntLiteralExpr(i16),
     BlockStatement(Vec<AstNode>),
     BinaryExpr(BinaryExpData),
-
+    IfElseStatement(IfElseData),
     VariableExpr(String),
     VarDeclStatement(VarDeclData),
     AssignmentStatement(AssignmentData),
@@ -239,6 +251,9 @@ impl<'a> Parser<'a> {
                         None => return Err(ParserError::UnexpectedEoF),
                     }
                 }
+                Some(Token::If) => {
+                    statements.push(self.parse_if_statement()?);
+                }
                 Some(other) => {
                     return Err(ParserError::UnexpectedToken {
                         expected: "return statment or '}'".to_string(),
@@ -288,6 +303,49 @@ impl<'a> Parser<'a> {
             name,
             var_typ,
             initializer,
+        }))
+    }
+
+    fn parse_if_statement(&mut self) -> Result<AstNode, ParserError> {
+        self.tokens.next();
+
+        match self.tokens.next() {
+            Some(Token::LeftParen) => {}
+            Some(other) => {
+                return Err(ParserError::UnexpectedToken {
+                    expected: "'('".to_string(),
+                    found: format!("{:?}", other),
+                });
+            }
+            None => return Err(ParserError::UnexpectedEoF),
+        };
+
+        let comparison = self.parse_comparison()?;
+
+        match self.tokens.next() {
+            Some(Token::RightParen) => {}
+            Some(other) => {
+                return Err(ParserError::UnexpectedToken {
+                    expected: "')'".to_string(),
+                    found: format!("{:?}", other),
+                });
+            }
+            None => return Err(ParserError::UnexpectedEoF),
+        };
+
+        let if_branch = self.parse_block()?;
+
+        let else_branch = if let Some(Token::Else) = self.tokens.peek() {
+            self.tokens.next();
+            Some(self.parse_block()?)
+        } else {
+            None
+        };
+
+        Ok(AstNode::IfElseStatement(IfElseData {
+            condition_expr: Box::new(comparison),
+            if_branch,
+            else_branch,
         }))
     }
 
@@ -387,6 +445,44 @@ impl<'a> Parser<'a> {
                 operator,
             })
         }
+        Ok(left)
+    }
+
+    fn parse_comparison(&mut self) -> Result<AstNode, ParserError> {
+        let mut left = self.parse_expression()?;
+        loop {
+            let operator = match self.tokens.peek() {
+                Some(Token::DoubleEqual) => {
+                    self.tokens.next();
+                    BinaryOperator::DoubleEqual
+                }
+                Some(Token::LessThan) => {
+                    self.tokens.next();
+                    BinaryOperator::LessThan
+                }
+                Some(Token::LessOrEqual) => {
+                    self.tokens.next();
+                    BinaryOperator::LessOrEqual
+                }
+                Some(Token::GreaterThan) => {
+                    self.tokens.next();
+                    BinaryOperator::GreaterThan
+                }
+                Some(Token::GreaterOrEqual) => {
+                    self.tokens.next();
+                    BinaryOperator::GreaterOrEqual
+                }
+                _ => break,
+            };
+
+            let right = self.parse_expression()?;
+            left = AstNode::BinaryExpr(BinaryExpData {
+                left: Box::new(left),
+                right: Box::new(right),
+                operator,
+            })
+        }
+
         Ok(left)
     }
 

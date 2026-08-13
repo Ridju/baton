@@ -156,6 +156,22 @@ impl Analyzer {
                 self.exit_scope();
                 Ok(())
             }
+            AstNode::IfElseStatement(data) => {
+                let cond_type = self.analyze_expr(&data.condition_expr)?;
+                if cond_type != Type::Int {
+                    return Err(SemanticError::NotMatchingReturnType(format!(
+                        "If condition must be of type Int, found '{:?}'",
+                        cond_type
+                    )));
+                }
+
+                self.analyze(*data.if_branch)?;
+                if let Some(else_branch) = data.else_branch {
+                    self.analyze(*else_branch)?;
+                }
+
+                Ok(())
+            }
             node => {
                 return Err(SemanticError::NotImplemented(format!(
                     "Function not implemented for {:?}",

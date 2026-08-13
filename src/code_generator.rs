@@ -15,6 +15,7 @@ pub struct Generator {
     buffer: String,
     local_vars: HashMap<String, i32>,
     stack_offset: i32,
+    label_count: usize,
 }
 
 impl Generator {
@@ -23,6 +24,7 @@ impl Generator {
             buffer: String::new(),
             local_vars: HashMap::new(),
             stack_offset: -8,
+            label_count: 0,
         }
     }
 
@@ -85,6 +87,26 @@ impl Generator {
                     BinaryOperator::Div => {
                         self.buffer.push_str("\tsdiv x0, x1, x0\n");
                     }
+                    BinaryOperator::DoubleEqual => {
+                        self.buffer.push_str("\tcmp x1, x0\n");
+                        self.buffer.push_str("\tcset x0, eq\n");
+                    }
+                    BinaryOperator::LessThan => {
+                        self.buffer.push_str("\tcmp x1, x0\n");
+                        self.buffer.push_str("\tcset x0, lt\n");
+                    }
+                    BinaryOperator::GreaterThan => {
+                        self.buffer.push_str("\tcmp x1, x0\n");
+                        self.buffer.push_str("\tcset x0, gt\n");
+                    }
+                    BinaryOperator::LessOrEqual => {
+                        self.buffer.push_str("\tcmp x1, x0\n");
+                        self.buffer.push_str("\tcset x0, le\n");
+                    }
+                    BinaryOperator::GreaterOrEqual => {
+                        self.buffer.push_str("\tcmp x1, x0\n");
+                        self.buffer.push_str("\tcset x0, ge\n");
+                    }
                 }
                 Ok(())
             }
@@ -122,6 +144,34 @@ impl Generator {
                 });
                 self.buffer
                     .push_str(&format!("\tldr x0, [x29, #{}]\n", offset));
+                Ok(())
+            }
+            AstNode::IfElseStatement(data) => {
+                let label_idx = self.label_count;
+                self.label_count += 1;
+
+                let else_label = format!(".L_else_{}", label_idx);
+                let end_label = format!(".L_end_{}", label_idx);
+
+                self.generate(*data.condition_expr)?;
+
+                let target_label = if data.else_branch.is_some() {
+                    &else_label
+                } else {
+                    &end_label
+                };
+                self.buffer
+                    .push_str(&format!("\tcbz x0, {}\n", target_label));
+
+                self.generate(*data.if_branch)?;
+
+                if let Some(ref else_node) = data.else_branch {
+                    self.buffer.push_str(&format!("\tb {}\n", end_label));
+                    self.buffer.push_str(&format!("{}:\n", else_label));
+                    self.generate(*else_node.clone())?;
+                }
+
+                self.buffer.push_str(&format!("{}:\n", end_label));
                 Ok(())
             }
         }
