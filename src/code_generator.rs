@@ -1,4 +1,4 @@
-use crate::parser::{AstNode, BinaryOperator};
+use crate::parser::{AstNode, BinaryOperator, Type};
 use std::collections::HashMap;
 use std::fs;
 use std::io;
@@ -10,10 +10,16 @@ pub enum GeneratorError {
     GeneralError(String),
 }
 
+#[derive(Debug, PartialEq)]
+struct VarInfo {
+    offset: i32,
+    typ: Type,
+}
+
 #[derive(Debug)]
 pub struct Generator {
     buffer: String,
-    local_vars: HashMap<String, i32>,
+    local_vars: HashMap<String, VarInfo>,
     stack_offset: i32,
     label_count: usize,
 }
@@ -25,6 +31,25 @@ impl Generator {
             local_vars: HashMap::new(),
             stack_offset: -8,
             label_count: 0,
+        }
+    }
+
+    fn expr_type(&self, node: &AstNode) -> Type {
+        match node {
+            AstNode::IntLiteralExpr(_) => Type::Int,
+            AstNode::BoolLiteralExpr(_) => Type::Bool,
+            AstNode::FloatLiteralExpr(_) => Type::Float,
+            AstNode::StringLiteralExpr(_) => Type::String,
+            AstNode::VariableExpr(name) => self.local_vars.get(name).unwrap().typ.clone(),
+            AstNode::BinaryExpr(data) => match data.operator {
+                BinaryOperator::LessThan
+                | BinaryOperator::GreaterThan
+                | BinaryOperator::LessOrEqual
+                | BinaryOperator::GreaterOrEqual
+                | BinaryOperator::DoubleEqual => Type::Bool,
+                _ => self.expr_type(&data.left),
+            },
+            _ => Type::Int,
         }
     }
 
@@ -49,10 +74,21 @@ impl Generator {
 
                 for (i, param) in func_data.parameter.iter().enumerate() {
                     let offset = self.stack_offset;
-                    self.buffer
-                        .push_str(&format!("\tstr x{}, [x29, #{}]\n", i, offset));
+                    if param.param_typ == Type::Float {
+                        self.buffer
+                            .push_str(&format!("\tstr d{}, [x29, #{}]\n", i, offset))
+                    } else {
+                        self.buffer
+                            .push_str(&format!("\tstr x{}, [x29, #{}]\n", i, offset));
+                    }
 
-                    self.local_vars.insert(param.name.clone(), offset);
+                    self.local_vars.insert(
+                        param.name.clone(),
+                        VarInfo {
+                            offset,
+                            typ: param.param_typ.clone(),
+                        },
+                    );
                     self.stack_offset -= 8;
                 }
 
@@ -69,6 +105,41 @@ impl Generator {
                 self.buffer.push_str(&format!("\tmov x0, #{}\n", num));
                 Ok(())
             }
+            AstNode::BoolLiteralExpr(val) => {
+                let int_val = if val { 1 } else { 0 };
+                self.buffer.push_str(&format!("\tmov x0, #{}\n", int_val));
+                Ok(())
+            }
+            AstNode::FloatLiteralExpr(num_str) => {
+                let label_idx = self.label_count;
+                self.label_count += 1;
+                let float_label = format!("L_float_{}", label_idx);
+
+                self.buffer.push_str("\t.section __TEXT,__const\n");
+                self.buffer.push_str("\t.align 3\n");
+                self.buffer.push_str(&format!("{}:\n", float_label));
+                self.buffer.push_str(&format!("\t.double {}\n", num_str));
+                self.buffer.push_str("\t.text\n");
+
+                self.buffer
+                    .push_str(&format!("\tadrp x16, {}@PAGE\n", float_label));
+                self.buffer
+                    .push_str(&format!("\tldr d0, [x16, {}@PAGEOFF]\n", float_label));
+                Ok(())
+            }
+            AstNode::StringLiteralExpr(val) => {
+                let label_idx = self.label_count;
+                self.label_count += 1;
+                let str_label = format!("L_str_{}", label_idx);
+
+                self.buffer.push_str("\t.section __TEXT,__cstring\n");
+                self.buffer.push_str(&format!("{}:\n", str_label));
+                self.buffer.push_str(&format!("\t.asciz \"{}\"\n", val));
+                self.buffer.push_str("\t.text\n");
+
+                self.buffer.push_str(&format!("\tldr x0, ={}\n", str_label));
+                Ok(())
+            }
             AstNode::BlockStatement(nodes) => {
                 for node in nodes {
                     self.generate(node)?;
@@ -76,83 +147,153 @@ impl Generator {
                 Ok(())
             }
             AstNode::BinaryExpr(bin_data) => {
-                self.generate(*bin_data.left)?;
-                self.buffer.push_str("\tstr x0, [sp, #-16]!\n");
+                let left_type = self.expr_type(&bin_data.left);
 
-                self.generate(*bin_data.right)?;
+                if left_type == Type::Float {
+                    self.generate(*bin_data.left)?;
+                    self.buffer.push_str("\tstr d0, [sp, #-16]!\n");
 
-                self.buffer.push_str("\tldr x1, [sp], #16\n");
+                    self.generate(*bin_data.right)?;
+                    self.buffer.push_str("\tldr d1, [sp], #16\n");
 
-                match bin_data.operator {
-                    BinaryOperator::Add => {
-                        self.buffer.push_str("\tadd x0, x1, x0\n");
+                    match bin_data.operator {
+                        BinaryOperator::Add => self.buffer.push_str("\tfadd d0, d1, d0\n"),
+                        BinaryOperator::Sub => self.buffer.push_str("\tfsub d0, d1, d0\n"),
+                        BinaryOperator::Mul => self.buffer.push_str("\tfmul d0, d1, d0\n"),
+                        BinaryOperator::Div => self.buffer.push_str("\tfdiv d0, d1, d0\n"),
+                        BinaryOperator::DoubleEqual => {
+                            self.buffer.push_str("\tfcmp d1, d0\n");
+                            self.buffer.push_str("\tcset x0, eq\n");
+                        }
+                        BinaryOperator::LessThan => {
+                            self.buffer.push_str("\tfcmp d1, d0\n");
+                            self.buffer.push_str("\tcset x0, lt\n");
+                        }
+                        BinaryOperator::GreaterThan => {
+                            self.buffer.push_str("\tfcmp d1, d0\n");
+                            self.buffer.push_str("\tcset x0, gt\n");
+                        }
+                        BinaryOperator::LessOrEqual => {
+                            self.buffer.push_str("\tfcmp d1, d0\n");
+                            self.buffer.push_str("\tcset x0, le\n");
+                        }
+                        BinaryOperator::GreaterOrEqual => {
+                            self.buffer.push_str("\tfcmp d1, d0\n");
+                            self.buffer.push_str("\tcset x0, ge\n");
+                        }
                     }
-                    BinaryOperator::Sub => {
-                        self.buffer.push_str("\tsub x0, x1, x0\n");
-                    }
-                    BinaryOperator::Mul => {
-                        self.buffer.push_str("\tmul x0, x1, x0\n");
-                    }
-                    BinaryOperator::Div => {
-                        self.buffer.push_str("\tsdiv x0, x1, x0\n");
-                    }
-                    BinaryOperator::DoubleEqual => {
-                        self.buffer.push_str("\tcmp x1, x0\n");
-                        self.buffer.push_str("\tcset x0, eq\n");
-                    }
-                    BinaryOperator::LessThan => {
-                        self.buffer.push_str("\tcmp x1, x0\n");
-                        self.buffer.push_str("\tcset x0, lt\n");
-                    }
-                    BinaryOperator::GreaterThan => {
-                        self.buffer.push_str("\tcmp x1, x0\n");
-                        self.buffer.push_str("\tcset x0, gt\n");
-                    }
-                    BinaryOperator::LessOrEqual => {
-                        self.buffer.push_str("\tcmp x1, x0\n");
-                        self.buffer.push_str("\tcset x0, le\n");
-                    }
-                    BinaryOperator::GreaterOrEqual => {
-                        self.buffer.push_str("\tcmp x1, x0\n");
-                        self.buffer.push_str("\tcset x0, ge\n");
+                } else {
+                    self.generate(*bin_data.left)?;
+                    self.buffer.push_str("\tstr x0, [sp, #-16]!\n");
+
+                    self.generate(*bin_data.right)?;
+                    self.buffer.push_str("\tldr x1, [sp], #16\n");
+
+                    match bin_data.operator {
+                        BinaryOperator::Add => {
+                            self.buffer.push_str("\tadd x0, x1, x0\n");
+                        }
+                        BinaryOperator::Sub => {
+                            self.buffer.push_str("\tsub x0, x1, x0\n");
+                        }
+                        BinaryOperator::Mul => {
+                            self.buffer.push_str("\tmul x0, x1, x0\n");
+                        }
+                        BinaryOperator::Div => {
+                            self.buffer.push_str("\tsdiv x0, x1, x0\n");
+                        }
+                        BinaryOperator::DoubleEqual => {
+                            self.buffer.push_str("\tcmp x1, x0\n");
+                            self.buffer.push_str("\tcset x0, eq\n");
+                        }
+                        BinaryOperator::LessThan => {
+                            self.buffer.push_str("\tcmp x1, x0\n");
+                            self.buffer.push_str("\tcset x0, lt\n");
+                        }
+                        BinaryOperator::GreaterThan => {
+                            self.buffer.push_str("\tcmp x1, x0\n");
+                            self.buffer.push_str("\tcset x0, gt\n");
+                        }
+                        BinaryOperator::LessOrEqual => {
+                            self.buffer.push_str("\tcmp x1, x0\n");
+                            self.buffer.push_str("\tcset x0, le\n");
+                        }
+                        BinaryOperator::GreaterOrEqual => {
+                            self.buffer.push_str("\tcmp x1, x0\n");
+                            self.buffer.push_str("\tcset x0, ge\n");
+                        }
                     }
                 }
+
                 Ok(())
             }
             AstNode::VarDeclStatement(var_data) => {
+                let is_float = var_data.var_typ == Type::Float;
                 if let Some(init) = var_data.initializer {
                     self.generate(*init)?;
                 } else {
-                    self.buffer.push_str("\tmov x0, #0\n");
+                    if is_float {
+                        self.buffer.push_str("\tfmov d0, #0.0\n");
+                    } else {
+                        self.buffer.push_str("\tmov x0, #0\n");
+                    }
                 }
 
                 let offset = self.stack_offset;
-                self.local_vars.insert(var_data.name.clone(), offset);
+                self.local_vars.insert(
+                    var_data.name.clone(),
+                    VarInfo {
+                        offset,
+                        typ: var_data.var_typ.clone(),
+                    },
+                );
                 self.stack_offset -= 8;
 
-                self.buffer
-                    .push_str(&format!("\tstr x0, [x29, #{}]\n", offset));
+                if is_float {
+                    self.buffer
+                        .push_str(&format!("\tstr d0, [x29, #{}]\n", offset))
+                } else {
+                    self.buffer
+                        .push_str(&format!("\tstr x0, [x29, #{}]\n", offset));
+                }
                 Ok(())
             }
             AstNode::AssignmentStatement(assign_data) => {
-                self.generate(*assign_data.value)?;
-
-                let offset = self.local_vars.get(&assign_data.name).unwrap_or_else(|| {
+                let var_info = self.local_vars.get(&assign_data.name).unwrap_or_else(|| {
                     panic!(
                         "Undefined variable '{}' in code generator",
                         assign_data.name
                     );
                 });
-                self.buffer
-                    .push_str(&format!("\tstr x0, [x29, #{}]\n", offset));
+                let is_float = var_info.typ == Type::Float;
+                let offset = var_info.offset;
+
+                self.generate(*assign_data.value)?;
+
+                if is_float {
+                    self.buffer
+                        .push_str(&format!("\tstr d0, [x29, #{}]\n", offset));
+                } else {
+                    self.buffer
+                        .push_str(&format!("\tstr x0, [x29, #{}]\n", offset));
+                }
                 Ok(())
             }
             AstNode::VariableExpr(name) => {
-                let offset = self.local_vars.get(&name).unwrap_or_else(|| {
+                let var_info = self.local_vars.get(&name).unwrap_or_else(|| {
                     panic!("Undefined variable '{}' in code generator", name);
                 });
-                self.buffer
-                    .push_str(&format!("\tldr x0, [x29, #{}]\n", offset));
+                let is_float = var_info.typ == Type::Float;
+                let offset = var_info.offset;
+
+                if is_float {
+                    self.buffer
+                        .push_str(&format!("\tldr d0, [x29, #{}]\n", offset));
+                } else {
+                    self.buffer
+                        .push_str(&format!("\tldr x0, [x29, #{}]\n", offset));
+                }
+
                 Ok(())
             }
             AstNode::IfElseStatement(data) => {
@@ -185,13 +326,24 @@ impl Generator {
             }
             AstNode::CallExpr(data) => {
                 for arg in &data.arguments {
+                    let arg_type = self.expr_type(arg);
                     self.generate(arg.clone())?;
-                    self.buffer.push_str("\tstr x0, [sp, #-16]!\n");
+                    if arg_type == Type::Float {
+                        self.buffer.push_str("\tstr d0, [sp, #-16]!\n");
+                    } else {
+                        self.buffer.push_str("\tstr x0, [sp, #-16]!\n");
+                    }
                 }
 
-                for i in (0..data.arguments.len()).rev() {
-                    let reg = format!("x{}", i);
-                    self.buffer.push_str(&format!("\tldr {}, [sp], #16\n", reg));
+                for (i, arg) in data.arguments.iter().enumerate().rev() {
+                    let arg_type = self.expr_type(arg);
+                    if arg_type == Type::Float {
+                        let reg = format!("d{}", i);
+                        self.buffer.push_str(&format!("\tldr {}, [sp], #16\n", reg));
+                    } else {
+                        let reg = format!("x{}", i);
+                        self.buffer.push_str(&format!("\tldr {}, [sp], #16\n", reg));
+                    }
                 }
 
                 self.buffer.push_str(&format!("\tbl _{}\n", data.name));
@@ -448,24 +600,19 @@ mod tests {
 
     #[test]
     fn test_generate_function_call() {
-        use crate::parser::{CallData};
+        use crate::parser::CallData;
 
-        let ast = AstNode::Programm(vec![
-            AstNode::FunctionDecl(FunctionDeclData {
-                name: "main".to_string(),
-                return_type: Type::Int,
-                parameter: vec![],
-                body: Box::new(AstNode::BlockStatement(vec![
-                    AstNode::ReturnStatement(Box::new(AstNode::CallExpr(CallData {
-                        name: "add".to_string(),
-                        arguments: vec![
-                            AstNode::IntLiteralExpr(1),
-                            AstNode::IntLiteralExpr(3),
-                        ],
-                    }))),
-                ])),
-            }),
-        ]);
+        let ast = AstNode::Programm(vec![AstNode::FunctionDecl(FunctionDeclData {
+            name: "main".to_string(),
+            return_type: Type::Int,
+            parameter: vec![],
+            body: Box::new(AstNode::BlockStatement(vec![AstNode::ReturnStatement(
+                Box::new(AstNode::CallExpr(CallData {
+                    name: "add".to_string(),
+                    arguments: vec![AstNode::IntLiteralExpr(1), AstNode::IntLiteralExpr(3)],
+                })),
+            )])),
+        })]);
 
         let mut generator = Generator::new();
         generator.generate(ast).unwrap();
@@ -478,5 +625,89 @@ mod tests {
         assert!(assembly.contains("\tldr x1, [sp], #16"));
 
         assert!(assembly.contains("\tbl _add"));
+    }
+
+    #[test]
+    fn test_codegen_bool_literal() {
+        let ast = AstNode::Programm(vec![AstNode::FunctionDecl(FunctionDeclData {
+            name: "main".to_string(),
+            return_type: Type::Bool,
+            parameter: Vec::new(),
+            body: Box::new(AstNode::BlockStatement(vec![AstNode::ReturnStatement(
+                Box::new(AstNode::BoolLiteralExpr(true)),
+            )])),
+        })]);
+
+        let mut generator = Generator::new();
+        generator.generate(ast).unwrap();
+
+        let assembly = generator.buffer;
+        assert!(assembly.contains("mov x0, #1"));
+    }
+
+    #[test]
+    fn test_codegen_float_literal() {
+        let ast = AstNode::Programm(vec![AstNode::FunctionDecl(FunctionDeclData {
+            name: "main".to_string(),
+            return_type: Type::Float,
+            parameter: Vec::new(),
+            body: Box::new(AstNode::BlockStatement(vec![AstNode::ReturnStatement(
+                Box::new(AstNode::FloatLiteralExpr(3.14)),
+            )])),
+        })]);
+
+        let mut generator = Generator::new();
+        generator.generate(ast).unwrap();
+
+        let assembly = generator.buffer;
+        assert!(assembly.contains("__TEXT,__const"));
+        assert!(assembly.contains("L_float_0"));
+        assert!(assembly.contains("adrp x16, L_float_0@PAGE"));
+        assert!(assembly.contains("ldr d0, [x16, L_float_0@PAGEOFF]"));
+    }
+
+    #[test]
+    fn test_codegen_string_literal() {
+        let ast = AstNode::Programm(vec![AstNode::FunctionDecl(FunctionDeclData {
+            name: "main".to_string(),
+            return_type: Type::String,
+            parameter: Vec::new(),
+            body: Box::new(AstNode::BlockStatement(vec![AstNode::ReturnStatement(
+                Box::new(AstNode::StringLiteralExpr("Hello World".to_string())),
+            )])),
+        })]);
+
+        let mut generator = Generator::new();
+        generator.generate(ast).unwrap();
+
+        let assembly = generator.buffer;
+        assert!(assembly.contains("__TEXT,__cstring"));
+        assert!(assembly.contains(".asciz \"Hello World\""));
+        assert!(assembly.contains("ldr x0, =L_str_0"));
+    }
+
+    #[test]
+    fn test_codegen_float_binary_expression() {
+        let ast = AstNode::Programm(vec![AstNode::FunctionDecl(FunctionDeclData {
+            name: "main".to_string(),
+            return_type: Type::Float,
+            parameter: Vec::new(),
+            body: Box::new(AstNode::BlockStatement(vec![AstNode::ReturnStatement(
+                Box::new(AstNode::BinaryExpr(BinaryExpData {
+                    left: Box::new(AstNode::FloatLiteralExpr(1.5)),
+                    right: Box::new(AstNode::FloatLiteralExpr(2.5)),
+                    operator: BinaryOperator::Add,
+                })),
+            )])),
+        })]);
+
+        let mut generator = Generator::new();
+        generator.generate(ast).unwrap();
+
+        let assembly = generator.buffer;
+        assert!(assembly.contains("adrp x16, L_float_0@PAGE"));
+        assert!(assembly.contains("str d0, [sp, #-16]!"));
+        assert!(assembly.contains("ldr d1, [sp], #16"));
+        assert!(assembly.contains("fadd d0, d1, d0"));
     }
 }

@@ -5,8 +5,14 @@ use std::str::Chars;
 pub enum Token {
     Return,
     IntKeyword,
+    BoolKeyword,
+    FloatKeyword,
+    StringKeyword,
     Identifier(String),
     IntNumber(String),
+    Bool(bool),
+    FloatNumber(String),
+    String(String),
 
     Plus,
     Minus,
@@ -155,6 +161,9 @@ impl<'a> Scanner<'a> {
                     self.column += 1;
                     tokens.push(Token::Comma);
                 }
+                '"' => {
+                    tokens.push(self.scan_string()?);
+                }
                 other => {
                     return Err(ScannerError {
                         message: format!("Unexpected character: '{}'", other),
@@ -165,6 +174,39 @@ impl<'a> Scanner<'a> {
             }
         }
         Ok(tokens)
+    }
+
+    fn scan_string(&mut self) -> Result<Token, ScannerError> {
+        self.chars.next();
+        self.column += 1;
+
+        let mut buffer = String::new();
+        while let Some(&c) = self.chars.peek() {
+            match c {
+                '"' => {
+                    self.chars.next();
+                    self.column += 1;
+                    return Ok(Token::String(buffer));
+                }
+                '\n' => {
+                    self.chars.next();
+                    self.line += 1;
+                    self.column = 1;
+                    buffer.push('\n');
+                }
+                other => {
+                    self.chars.next();
+                    buffer.push(other);
+                    self.column += 1;
+                }
+            }
+        }
+
+        Err(ScannerError {
+            message: "Unterminated string literal".to_string(),
+            line: self.line,
+            column: self.column,
+        })
     }
 
     fn identifier_or_keyword(&mut self) -> Result<Token, ScannerError> {
@@ -183,8 +225,13 @@ impl<'a> Scanner<'a> {
         let token = match token_string.as_str() {
             "return" => Token::Return,
             "int" => Token::IntKeyword,
+            "bool" => Token::BoolKeyword,
             "if" => Token::If,
             "else" => Token::Else,
+            "false" => Token::Bool(false),
+            "true" => Token::Bool(true),
+            "float" => Token::FloatKeyword,
+            "string" => Token::StringKeyword,
             _ => Token::Identifier(token_string),
         };
 
@@ -194,7 +241,7 @@ impl<'a> Scanner<'a> {
     fn scan_number(&mut self) -> Result<Token, ScannerError> {
         let mut token_string = String::new();
         while let Some(&c) = self.chars.peek() {
-            if c.is_numeric() {
+            if c.is_numeric() || c == '.' {
                 token_string.push(c);
                 self.chars.next();
                 self.column += 1;
@@ -202,8 +249,11 @@ impl<'a> Scanner<'a> {
                 break;
             }
         }
-
-        Ok(Token::IntNumber(token_string))
+        if token_string.contains(".") {
+            Ok(Token::FloatNumber(token_string))
+        } else {
+            Ok(Token::IntNumber(token_string))
+        }
     }
 }
 
@@ -523,6 +573,58 @@ mod tests {
                 Token::IntKeyword,
                 Token::Identifier("b".to_string()),
                 Token::RightParen,
+            ]
+        );
+    }
+
+    #[test]
+    fn test_bool() {
+        let input = "bool a = false;";
+        let mut sc = Scanner::new(input);
+        let result = sc.scan_source().unwrap();
+
+        assert_eq!(
+            result,
+            vec![
+                Token::BoolKeyword,
+                Token::Identifier("a".to_string()),
+                Token::Equal,
+                Token::Bool(false),
+                Token::Semicolon
+            ]
+        );
+    }
+
+    #[test]
+    fn test_string() {
+        let input = "string a = \"test\"";
+        let mut sc = Scanner::new(input);
+        let result = sc.scan_source().unwrap();
+
+        assert_eq!(
+            result,
+            vec![
+                Token::StringKeyword,
+                Token::Identifier("a".to_string()),
+                Token::Equal,
+                Token::String("test".to_string())
+            ]
+        );
+    }
+
+    #[test]
+    fn test_float() {
+        let input = "float a = 3.0";
+        let mut sc = Scanner::new(input);
+        let result = sc.scan_source().unwrap();
+
+        assert_eq!(
+            result,
+            vec![
+                Token::FloatKeyword,
+                Token::Identifier("a".to_string()),
+                Token::Equal,
+                Token::FloatNumber("3.0".to_string()),
             ]
         );
     }

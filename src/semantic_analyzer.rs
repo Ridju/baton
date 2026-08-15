@@ -1,7 +1,4 @@
-use crate::{
-    parser::{AstNode, FunctionDeclData, Type},
-    semantic_analyzer::SemanticError::UndefinedVariable,
-};
+use crate::parser::{AstNode, FunctionDeclData, Type};
 use std::collections::HashMap;
 
 #[derive(Debug)]
@@ -155,7 +152,10 @@ impl Analyzer {
                     return_type, expr_type
                 )))
             }
-            AstNode::IntLiteralExpr(_) => Ok(()),
+            AstNode::IntLiteralExpr(_)
+            | AstNode::BoolLiteralExpr(_)
+            | AstNode::FloatLiteralExpr(_)
+            | AstNode::StringLiteralExpr(_) => Ok(()),
             AstNode::BlockStatement(nodes) => {
                 self.enter_scope();
                 for node in nodes {
@@ -166,9 +166,9 @@ impl Analyzer {
             }
             AstNode::IfElseStatement(data) => {
                 let cond_type = self.analyze_expr(&data.condition_expr)?;
-                if cond_type != Type::Int {
+                if cond_type != Type::Bool {
                     return Err(SemanticError::NotMatchingReturnType(format!(
-                        "If condition must be of type Int, found '{:?}'",
+                        "If condition must be of type bool, found '{:?}'",
                         cond_type
                     )));
                 }
@@ -192,6 +192,9 @@ impl Analyzer {
     fn analyze_expr(&mut self, node: &AstNode) -> Result<Type, SemanticError> {
         match node {
             AstNode::IntLiteralExpr(_) => Ok(Type::Int),
+            AstNode::BoolLiteralExpr(_) => Ok(Type::Bool),
+            AstNode::FloatLiteralExpr(_) => Ok(Type::Float),
+            AstNode::StringLiteralExpr(_) => Ok(Type::String),
             AstNode::VariableExpr(name) => match self.lookup_variable(name) {
                 Some(meta) => Ok(meta.typ.clone()),
                 None => Err(SemanticError::UndefinedVariable(format!(
@@ -203,14 +206,36 @@ impl Analyzer {
                 let left_type = self.analyze_expr(&data.left)?;
                 let right_type = self.analyze_expr(&data.right)?;
 
-                if left_type != Type::Int || right_type != Type::Int {
+                if left_type != right_type {
                     return Err(SemanticError::NotMatchingReturnType(format!(
                         "Binary expression operands must be of type Int, found '{:?}' and '{:?}'",
                         left_type, right_type
                     )));
                 }
 
-                Ok(Type::Int)
+                match &data.operator {
+                    crate::parser::BinaryOperator::Add
+                    | crate::parser::BinaryOperator::Sub
+                    | crate::parser::BinaryOperator::Mul
+                    | crate::parser::BinaryOperator::Div => {
+                        if left_type != Type::Int && left_type != Type::Float {
+                            return Err(SemanticError::NotMatchingReturnType(format!(
+                                "Arithmetic operators require int or float operands, found {:?}",
+                                left_type
+                            )));
+                        }
+                        Ok(left_type)
+                    }
+                    crate::parser::BinaryOperator::LessThan
+                    | crate::parser::BinaryOperator::GreaterThan
+                    | crate::parser::BinaryOperator::LessOrEqual
+                    | crate::parser::BinaryOperator::GreaterOrEqual
+                    | crate::parser::BinaryOperator::DoubleEqual => Ok(Type::Bool),
+                    other => Err(SemanticError::NotImplemented(format!(
+                        "Binary operator not implemented: {:?}",
+                        other
+                    ))),
+                }
             }
             AstNode::CallExpr(data) => {
                 let (func_type, params) = {
@@ -477,42 +502,154 @@ mod tests {
 
     #[test]
     fn test_funtion_call() {
-        use crate::parser::{Parameter, BinaryExpData, BinaryOperator, CallData};
+        use crate::parser::{BinaryExpData, BinaryOperator, CallData, Parameter};
 
         let ast = AstNode::Programm(vec![
             AstNode::FunctionDecl(FunctionDeclData {
                 name: "add".to_string(),
                 return_type: Type::Int,
                 parameter: vec![
-                    Parameter { name: "a".to_string(), param_typ: Type::Int },
-                    Parameter { name: "b".to_string(), param_typ: Type::Int },
+                    Parameter {
+                        name: "a".to_string(),
+                        param_typ: Type::Int,
+                    },
+                    Parameter {
+                        name: "b".to_string(),
+                        param_typ: Type::Int,
+                    },
                 ],
-                body: Box::new(AstNode::BlockStatement(vec![
-                    AstNode::ReturnStatement(Box::new(AstNode::BinaryExpr(BinaryExpData {
+                body: Box::new(AstNode::BlockStatement(vec![AstNode::ReturnStatement(
+                    Box::new(AstNode::BinaryExpr(BinaryExpData {
                         left: Box::new(AstNode::VariableExpr("a".to_string())),
                         right: Box::new(AstNode::VariableExpr("b".to_string())),
                         operator: BinaryOperator::Add,
-                    }))),
-                ])),
+                    })),
+                )])),
             }),
             AstNode::FunctionDecl(FunctionDeclData {
                 name: "main".to_string(),
                 return_type: Type::Int,
                 parameter: vec![],
-                body: Box::new(AstNode::BlockStatement(vec![
-                    AstNode::ReturnStatement(Box::new(AstNode::CallExpr(CallData {
+                body: Box::new(AstNode::BlockStatement(vec![AstNode::ReturnStatement(
+                    Box::new(AstNode::CallExpr(CallData {
                         name: "add".to_string(),
-                        arguments: vec![
-                            AstNode::IntLiteralExpr(1),
-                            AstNode::IntLiteralExpr(3),
-                        ],
-                    }))),
-                ])),
+                        arguments: vec![AstNode::IntLiteralExpr(1), AstNode::IntLiteralExpr(3)],
+                    })),
+                )])),
             }),
         ]);
 
         let mut analyzer = Analyzer::new();
         let result = analyzer.analyze(ast);
-        assert!(result.is_ok(), "Der Semantic Analyzer sollte den Funktionsaufruf als gültig erkennen.");
+        assert!(
+            result.is_ok(),
+            "Der Semantic Analyzer sollte den Funktionsaufruf als gültig erkennen."
+        );
+    }
+
+    #[test]
+    fn test_semantic_valid_bool_and_float() {
+        let ast = AstNode::Programm(vec![AstNode::FunctionDecl(FunctionDeclData {
+            name: "main".to_string(),
+            return_type: Type::Bool,
+            parameter: Vec::new(),
+            body: Box::new(AstNode::BlockStatement(vec![
+                AstNode::VarDeclStatement(crate::parser::VarDeclData {
+                    name: "isActive".to_string(),
+                    var_typ: Type::Bool,
+                    initializer: Some(Box::new(AstNode::BoolLiteralExpr(true))),
+                }),
+                AstNode::VarDeclStatement(crate::parser::VarDeclData {
+                    name: "pi".to_string(),
+                    var_typ: Type::Float,
+                    initializer: Some(Box::new(AstNode::FloatLiteralExpr(3.14))),
+                }),
+                AstNode::ReturnStatement(Box::new(AstNode::VariableExpr("isActive".to_string()))),
+            ])),
+        })]);
+
+        let mut analyzer = Analyzer::new();
+        let result = analyzer.analyze(ast);
+        assert!(
+            result.is_ok(),
+            "Der Analyzer sollte gültige Bool- und Float-Deklarationen akzeptieren."
+        );
+    }
+
+    #[test]
+    fn test_semantic_error_assignment_type_mismatch() {
+        let ast = AstNode::Programm(vec![AstNode::FunctionDecl(FunctionDeclData {
+            name: "main".to_string(),
+            return_type: Type::Int,
+            parameter: Vec::new(),
+            body: Box::new(AstNode::BlockStatement(vec![
+                AstNode::VarDeclStatement(crate::parser::VarDeclData {
+                    name: "x".to_string(),
+                    var_typ: Type::Int,
+                    initializer: Some(Box::new(AstNode::IntLiteralExpr(10))),
+                }),
+                AstNode::AssignmentStatement(crate::parser::AssignmentData {
+                    name: "x".to_string(),
+                    value: Box::new(AstNode::BoolLiteralExpr(false)),
+                }),
+                AstNode::ReturnStatement(Box::new(AstNode::VariableExpr("x".to_string()))),
+            ])),
+        })]);
+
+        let mut analyzer = Analyzer::new();
+        let result = analyzer.analyze(ast);
+        assert!(
+            matches!(result, Err(SemanticError::NotMatchingReturnType(_))),
+            "Sollte einen Typ-Fehler bei Zuweisung werfen."
+        );
+    }
+
+    #[test]
+    fn test_semantic_error_binary_operand_mismatch() {
+        use crate::parser::{BinaryExpData, BinaryOperator};
+
+        let ast = AstNode::Programm(vec![AstNode::FunctionDecl(FunctionDeclData {
+            name: "main".to_string(),
+            return_type: Type::Float,
+            parameter: Vec::new(),
+            body: Box::new(AstNode::BlockStatement(vec![AstNode::ReturnStatement(
+                Box::new(AstNode::BinaryExpr(BinaryExpData {
+                    left: Box::new(AstNode::IntLiteralExpr(1)),
+                    right: Box::new(AstNode::FloatLiteralExpr(2.0)),
+                    operator: BinaryOperator::Add,
+                })),
+            )])),
+        })]);
+
+        let mut analyzer = Analyzer::new();
+        let result = analyzer.analyze(ast);
+        assert!(
+            matches!(result, Err(SemanticError::NotMatchingReturnType(_))),
+            "Sollte Operandentyp-Inkompatibilität (Int vs. Float) erkennen."
+        );
+    }
+
+    #[test]
+    fn test_semantic_valid_string_variable() {
+        let ast = AstNode::Programm(vec![AstNode::FunctionDecl(FunctionDeclData {
+            name: "main".to_string(),
+            return_type: Type::String,
+            parameter: Vec::new(),
+            body: Box::new(AstNode::BlockStatement(vec![
+                AstNode::VarDeclStatement(crate::parser::VarDeclData {
+                    name: "greeting".to_string(),
+                    var_typ: Type::String,
+                    initializer: Some(Box::new(AstNode::StringLiteralExpr("Hello".to_string()))),
+                }),
+                AstNode::ReturnStatement(Box::new(AstNode::VariableExpr("greeting".to_string()))),
+            ])),
+        })]);
+
+        let mut analyzer = Analyzer::new();
+        let result = analyzer.analyze(ast);
+        assert!(
+            result.is_ok(),
+            "String-Variablen und deren Rückgabe sollten valide sein."
+        );
     }
 }

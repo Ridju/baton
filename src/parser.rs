@@ -12,19 +12,29 @@ pub enum ParserError {
     UnknownType(String),
     NotImplemented(String),
     InvalidIntLiteral(String),
+    InvalidFloatLiteral(String),
     UnexpectedEoF,
 }
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Type {
     Int,
+    Bool,
+    Float,
+    String,
 }
 
 impl Type {
     fn get_from_token(token: &Token) -> Result<Type, ParserError> {
         match token {
             Token::IntKeyword => Ok(Type::Int),
-            other => Err(ParserError::UnknownType(format!("{:?}", other))),
+            Token::BoolKeyword => Ok(Type::Bool),
+            Token::FloatKeyword => Ok(Type::Float),
+            Token::StringKeyword => Ok(Type::String),
+            other => Err(ParserError::UnexpectedToken {
+                expected: "'int', 'bool', 'float', 'string'".to_string(),
+                found: format!("{:?}", other),
+            }),
         }
     }
 }
@@ -95,6 +105,7 @@ pub enum AstNode {
     FunctionDecl(FunctionDeclData),
     ReturnStatement(Box<AstNode>),
     IntLiteralExpr(i16),
+    BoolLiteralExpr(bool),
     BlockStatement(Vec<AstNode>),
     BinaryExpr(BinaryExpData),
     IfElseStatement(IfElseData),
@@ -102,6 +113,8 @@ pub enum AstNode {
     VarDeclStatement(VarDeclData),
     AssignmentStatement(AssignmentData),
     CallExpr(CallData),
+    FloatLiteralExpr(f64),
+    StringLiteralExpr(String),
 }
 
 pub struct Parser<'a> {
@@ -119,7 +132,10 @@ impl<'a> Parser<'a> {
         let mut nodes = Vec::new();
         while let Some(token) = self.tokens.peek() {
             match token {
-                Token::IntKeyword => match self.tokens.clone().nth(2) {
+                Token::IntKeyword
+                | Token::BoolKeyword
+                | Token::FloatKeyword
+                | Token::StringKeyword => match self.tokens.clone().nth(2) {
                     Some(Token::LeftParen) => {
                         nodes.push(self.parse_function()?);
                     }
@@ -131,7 +147,7 @@ impl<'a> Parser<'a> {
                 },
                 other => {
                     return Err(ParserError::UnexpectedToken {
-                        expected: "int".to_string(),
+                        expected: "type keyword (int, bool, float, string)".to_string(),
                         found: format!("{:?}", other),
                     });
                 }
@@ -242,7 +258,10 @@ impl<'a> Parser<'a> {
                 Some(Token::Return) => {
                     statements.push(self.parse_return_statement()?);
                 }
-                Some(Token::IntKeyword) => {
+                Some(Token::IntKeyword)
+                | Some(Token::BoolKeyword)
+                | Some(Token::FloatKeyword)
+                | Some(Token::StringKeyword) => {
                     statements.push(self.parse_var_decl()?);
                 }
                 Some(Token::Identifier(_)) => {
@@ -423,6 +442,14 @@ impl<'a> Parser<'a> {
                     .map_err(|_| ParserError::InvalidIntLiteral(number))?;
                 Ok(AstNode::IntLiteralExpr(num))
             }
+            Some(Token::Bool(val)) => Ok(AstNode::BoolLiteralExpr(*val)),
+            Some(Token::FloatNumber(num_str)) => {
+                let num = num_str
+                    .parse::<f64>()
+                    .map_err(|_| ParserError::InvalidFloatLiteral(num_str.clone()))?;
+                Ok(AstNode::FloatLiteralExpr(num))
+            }
+            Some(Token::String(val)) => Ok(AstNode::StringLiteralExpr(val.clone())),
             Some(Token::Identifier(name)) => {
                 if let Some(Token::LeftParen) = self.tokens.peek() {
                     let mut args = Vec::new();
@@ -496,7 +523,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_comparison(&mut self) -> Result<AstNode, ParserError> {
-        let mut left = self.parse_expression()?;
+        let mut left = self.parse_additive_expr()?;
         loop {
             let operator = match self.tokens.peek() {
                 Some(Token::DoubleEqual) => {
@@ -522,7 +549,7 @@ impl<'a> Parser<'a> {
                 _ => break,
             };
 
-            let right = self.parse_expression()?;
+            let right = self.parse_additive_expr()?;
             left = AstNode::BinaryExpr(BinaryExpData {
                 left: Box::new(left),
                 right: Box::new(right),
@@ -533,7 +560,7 @@ impl<'a> Parser<'a> {
         Ok(left)
     }
 
-    fn parse_expression(&mut self) -> Result<AstNode, ParserError> {
+    fn parse_additive_expr(&mut self) -> Result<AstNode, ParserError> {
         let mut left = self.parse_term()?;
         loop {
             let operator = match self.tokens.peek() {
@@ -555,6 +582,10 @@ impl<'a> Parser<'a> {
             })
         }
         Ok(left)
+    }
+
+    fn parse_expression(&mut self) -> Result<AstNode, ParserError> {
+        self.parse_comparison()
     }
 }
 
@@ -677,7 +708,7 @@ mod tests {
         assert_eq!(
             result,
             Err(ParserError::UnexpectedToken {
-                expected: "int".to_string(),
+                expected: "type keyword (int, bool, float, string)".to_string(),
                 found: "Semicolon".to_string(),
             })
         );
@@ -813,23 +844,6 @@ mod tests {
 
         let result = Parser::new(&tokens).parse();
         assert_eq!(result, Err(ParserError::UnexpectedEoF));
-    }
-
-    #[test]
-    fn test_parser_unknown_parameter_type() {
-        let tokens = vec![
-            Token::IntKeyword,
-            Token::Identifier("foo".to_string()),
-            Token::LeftParen,
-            Token::Identifier("float".to_string()),
-            Token::Identifier("x".to_string()),
-            Token::RightParen,
-            Token::LeftBrace,
-            Token::RightBrace,
-        ];
-
-        let result = Parser::new(&tokens).parse();
-        assert!(matches!(result, Err(ParserError::UnknownType(_))));
     }
 
     #[test]
