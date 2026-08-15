@@ -189,6 +189,9 @@ impl<'a> Parser<'a> {
                     self.tokens.next();
                     break;
                 }
+                Some(Token::Comma) => {
+                    self.tokens.next();
+                }
                 Some(other) => {
                     return Err(ParserError::UnexpectedToken {
                         expected: "')' or ','".to_string(),
@@ -537,6 +540,49 @@ mod tests {
             name: "main".to_string(),
             return_type: Type::Int,
             parameter: Vec::new(),
+            body: Box::new(AstNode::BlockStatement(vec![AstNode::ReturnStatement(
+                Box::new(AstNode::IntLiteralExpr(42)),
+            )])),
+        })]);
+
+        assert_eq!(ast, expected);
+    }
+
+    #[test]
+    fn test_parse_simple_function_with_paramter() {
+        let tokens = vec![
+            Token::IntKeyword,
+            Token::Identifier("main".to_string()),
+            Token::LeftParen,
+            Token::IntKeyword,
+            Token::Identifier("a".to_string()),
+            Token::Comma,
+            Token::IntKeyword,
+            Token::Identifier("b".to_string()),
+            Token::RightParen,
+            Token::LeftBrace,
+            Token::Return,
+            Token::IntNumber("42".to_string()),
+            Token::Semicolon,
+            Token::RightBrace,
+        ];
+
+        let mut parser = Parser::new(&tokens);
+        let ast = parser.parse().unwrap();
+
+        let expected = AstNode::Programm(vec![AstNode::FunctionDecl(FunctionDeclData {
+            name: "main".to_string(),
+            return_type: Type::Int,
+            parameter: vec![
+                Parameter {
+                    name: "a".to_string(),
+                    param_typ: Type::Int,
+                },
+                Parameter {
+                    name: "b".to_string(),
+                    param_typ: Type::Int,
+                },
+            ],
             body: Box::new(AstNode::BlockStatement(vec![AstNode::ReturnStatement(
                 Box::new(AstNode::IntLiteralExpr(42)),
             )])),

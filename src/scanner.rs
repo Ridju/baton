@@ -23,7 +23,7 @@ pub enum Token {
     RightParen,
     LeftBrace,
     RightBrace,
-
+    Comma,
     Semicolon,
 
     If,
@@ -149,6 +149,11 @@ impl<'a> Scanner<'a> {
                     } else {
                         tokens.push(Token::GreaterThan);
                     }
+                }
+                ',' => {
+                    self.chars.next();
+                    self.column += 1;
+                    tokens.push(Token::Comma);
                 }
                 other => {
                     return Err(ScannerError {
@@ -498,5 +503,27 @@ mod tests {
                 Token::GreaterThan
             ]
         )
+    }
+
+    #[test]
+    fn test_parameters() {
+        let input = "int main(int a, int b)";
+        let mut sc = Scanner::new(input);
+        let result = sc.scan_source().unwrap();
+
+        assert_eq!(
+            result,
+            vec![
+                Token::IntKeyword,
+                Token::Identifier("main".to_string()),
+                Token::LeftParen,
+                Token::IntKeyword,
+                Token::Identifier("a".to_string()),
+                Token::Comma,
+                Token::IntKeyword,
+                Token::Identifier("b".to_string()),
+                Token::RightParen,
+            ]
+        );
     }
 }
