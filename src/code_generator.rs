@@ -47,6 +47,15 @@ impl Generator {
 
                 self.buffer.push_str("\tsub sp, sp, #128\n");
 
+                for (i, param) in func_data.parameter.iter().enumerate() {
+                    let offset = self.stack_offset;
+                    self.buffer
+                        .push_str(&format!("\tstr x{}, [x29, #{}]\n", i, offset));
+
+                    self.local_vars.insert(param.name.clone(), offset);
+                    self.stack_offset -= 8;
+                }
+
                 self.generate(*func_data.body)?;
                 Ok(())
             }
@@ -374,12 +383,52 @@ mod tests {
 
         let assembly = generator.buffer;
 
-        // Überprüfen, ob wichtige ARM64-Instruktionen für If-Else und Vergleiche generiert wurden
         assert!(assembly.contains("cmp"));
         assert!(assembly.contains("cset"));
         assert!(assembly.contains("gt"));
         assert!(assembly.contains("cbz"));
         assert!(assembly.contains(".L_else_0"));
         assert!(assembly.contains(".L_end_0"));
+    }
+
+    #[test]
+    fn test_generate_function_with_parameters() {
+        use crate::parser::{BinaryExpData, BinaryOperator, Parameter};
+
+        let ast = AstNode::Programm(vec![AstNode::FunctionDecl(FunctionDeclData {
+            name: "add".to_string(),
+            return_type: Type::Int,
+            parameter: vec![
+                Parameter {
+                    name: "a".to_string(),
+                    param_typ: Type::Int,
+                },
+                Parameter {
+                    name: "b".to_string(),
+                    param_typ: Type::Int,
+                },
+            ],
+            body: Box::new(AstNode::BlockStatement(vec![AstNode::ReturnStatement(
+                Box::new(AstNode::BinaryExpr(BinaryExpData {
+                    left: Box::new(AstNode::VariableExpr("a".to_string())),
+                    right: Box::new(AstNode::VariableExpr("b".to_string())),
+                    operator: BinaryOperator::Add,
+                })),
+            )])),
+        })]);
+
+        let mut generator = Generator::new();
+        generator.generate(ast).unwrap();
+
+        let assembly = generator.buffer;
+        assert!(assembly.contains("_add:"));
+
+        assert!(assembly.contains("\tstr x0, [x29, #-8]"));
+        assert!(assembly.contains("\tstr x1, [x29, #-16]"));
+
+        assert!(assembly.contains("\tldr x0, [x29, #-8]"));
+        assert!(assembly.contains("\tldr x0, [x29, #-16]"));
+
+        assert!(assembly.contains("\tadd x0, x1, x0"));
     }
 }
