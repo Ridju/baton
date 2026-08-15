@@ -84,6 +84,12 @@ pub struct IfElseData {
 }
 
 #[derive(Debug, PartialEq, Clone)]
+pub struct CallData {
+    pub name: String,
+    pub arguments: Vec<AstNode>,
+}
+
+#[derive(Debug, PartialEq, Clone)]
 pub enum AstNode {
     Programm(Vec<AstNode>),
     FunctionDecl(FunctionDeclData),
@@ -95,6 +101,7 @@ pub enum AstNode {
     VariableExpr(String),
     VarDeclStatement(VarDeclData),
     AssignmentStatement(AssignmentData),
+    CallExpr(CallData),
 }
 
 pub struct Parser<'a> {
@@ -416,7 +423,44 @@ impl<'a> Parser<'a> {
                     .map_err(|_| ParserError::InvalidIntLiteral(number))?;
                 Ok(AstNode::IntLiteralExpr(num))
             }
-            Some(Token::Identifier(name)) => Ok(AstNode::VariableExpr(name.clone())),
+            Some(Token::Identifier(name)) => {
+                if let Some(Token::LeftParen) = self.tokens.peek() {
+                    let mut args = Vec::new();
+                    self.tokens.next();
+                    loop {
+                        if let Some(Token::RightParen) = self.tokens.peek() {
+                            self.tokens.next();
+                            break;
+                        }
+                        let arg = self.parse_expression()?;
+                        args.push(arg);
+
+                        match self.tokens.peek() {
+                            Some(Token::RightParen) => {
+                                self.tokens.next();
+                                break;
+                            }
+                            Some(Token::Comma) => {
+                                self.tokens.next();
+                            }
+                            Some(other) => {
+                                return Err(ParserError::UnexpectedToken {
+                                    expected: "',', or ')'".to_string(),
+                                    found: format!("{:?}", other),
+                                });
+                            }
+                            None => return Err(ParserError::UnexpectedEoF),
+                        }
+                    }
+
+                    Ok(AstNode::CallExpr(CallData {
+                        name: name.clone(),
+                        arguments: args,
+                    }))
+                } else {
+                    Ok(AstNode::VariableExpr(name.clone()))
+                }
+            }
             Some(other) => {
                 return Err(ParserError::UnexpectedToken {
                     expected: "Int Number".to_string(),

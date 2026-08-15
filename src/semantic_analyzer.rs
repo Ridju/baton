@@ -1,4 +1,7 @@
-use crate::parser::{AstNode, FunctionDeclData, Type};
+use crate::{
+    parser::{AstNode, FunctionDeclData, Type},
+    semantic_analyzer::SemanticError::UndefinedVariable,
+};
 use std::collections::HashMap;
 
 #[derive(Debug)]
@@ -19,6 +22,7 @@ enum ElementKind {
 struct MetaData {
     typ: Type,
     kind: ElementKind,
+    parameters: Option<Vec<Type>>,
 }
 
 pub struct Analyzer {
@@ -50,9 +54,11 @@ impl Analyzer {
                         data.name
                     )));
                 }
+                let param_types = data.parameter.iter().map(|p| p.param_typ.clone()).collect();
                 let func_meta_data = MetaData {
                     typ: data.return_type.clone(),
                     kind: ElementKind::Function,
+                    parameters: Some(param_types),
                 };
                 scope.insert(data.name.clone(), func_meta_data);
                 self.current_return_type = Some(data.return_type.clone());
@@ -71,6 +77,7 @@ impl Analyzer {
                         MetaData {
                             typ: param.param_typ.clone(),
                             kind: ElementKind::Parameter,
+                            parameters: None,
                         },
                     );
                 }
@@ -103,6 +110,7 @@ impl Analyzer {
                     MetaData {
                         typ: data.var_typ.clone(),
                         kind: ElementKind::Variable,
+                        parameters: None,
                     },
                 );
                 Ok(())
@@ -203,6 +211,60 @@ impl Analyzer {
                 }
 
                 Ok(Type::Int)
+            }
+            AstNode::CallExpr(data) => {
+                let (func_type, params) = {
+                    let meta = match self.lookup_variable(&data.name) {
+                        Some(m) => m,
+                        None => {
+                            return Err(SemanticError::UndefinedVariable(format!(
+                                "Function '{}' is not defined",
+                                data.name
+                            )));
+                        }
+                    };
+
+                    if !matches!(meta.kind, ElementKind::Function) {
+                        return Err(SemanticError::NotMatchingReturnType(format!(
+                            "'{}' is not a function",
+                            data.name
+                        )));
+                    }
+
+                    let params = meta
+                        .parameters
+                        .as_ref()
+                        .ok_or_else(|| {
+                            SemanticError::NotMatchingReturnType(format!(
+                                "Function '{}' has no parameter metadata",
+                                data.name
+                            ))
+                        })?
+                        .clone();
+
+                    (meta.typ.clone(), params)
+                };
+
+                if data.arguments.len() != params.len() {
+                    return Err(SemanticError::NotMatchingReturnType(format!(
+                        "Function '{}' expects {} arguments, but {} were provided",
+                        data.name,
+                        params.len(),
+                        data.arguments.len()
+                    )));
+                }
+
+                for (arg, expected_type) in data.arguments.iter().zip(params.iter()) {
+                    let arg_type = self.analyze_expr(arg)?;
+                    if &arg_type != expected_type {
+                        return Err(SemanticError::NotMatchingReturnType(format!(
+                            "Argument type mismatch: expected '{:?}', found '{:?}'",
+                            expected_type, arg_type
+                        )));
+                    }
+                }
+
+                Ok(func_type)
             }
             other => Err(SemanticError::InvalidReturnType(format!(
                 "Expression type not supported: {:?}",
@@ -411,5 +473,46 @@ mod tests {
         let mut analyzer = Analyzer::new();
         let result = analyzer.analyze(ast);
         assert!(matches!(result, Err(SemanticError::UndefinedVariable(_))));
+    }
+
+    #[test]
+    fn test_funtion_call() {
+        use crate::parser::{Parameter, BinaryExpData, BinaryOperator, CallData};
+
+        let ast = AstNode::Programm(vec![
+            AstNode::FunctionDecl(FunctionDeclData {
+                name: "add".to_string(),
+                return_type: Type::Int,
+                parameter: vec![
+                    Parameter { name: "a".to_string(), param_typ: Type::Int },
+                    Parameter { name: "b".to_string(), param_typ: Type::Int },
+                ],
+                body: Box::new(AstNode::BlockStatement(vec![
+                    AstNode::ReturnStatement(Box::new(AstNode::BinaryExpr(BinaryExpData {
+                        left: Box::new(AstNode::VariableExpr("a".to_string())),
+                        right: Box::new(AstNode::VariableExpr("b".to_string())),
+                        operator: BinaryOperator::Add,
+                    }))),
+                ])),
+            }),
+            AstNode::FunctionDecl(FunctionDeclData {
+                name: "main".to_string(),
+                return_type: Type::Int,
+                parameter: vec![],
+                body: Box::new(AstNode::BlockStatement(vec![
+                    AstNode::ReturnStatement(Box::new(AstNode::CallExpr(CallData {
+                        name: "add".to_string(),
+                        arguments: vec![
+                            AstNode::IntLiteralExpr(1),
+                            AstNode::IntLiteralExpr(3),
+                        ],
+                    }))),
+                ])),
+            }),
+        ]);
+
+        let mut analyzer = Analyzer::new();
+        let result = analyzer.analyze(ast);
+        assert!(result.is_ok(), "Der Semantic Analyzer sollte den Funktionsaufruf als gültig erkennen.");
     }
 }

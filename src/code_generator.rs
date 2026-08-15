@@ -183,6 +183,20 @@ impl Generator {
                 self.buffer.push_str(&format!("{}:\n", end_label));
                 Ok(())
             }
+            AstNode::CallExpr(data) => {
+                for arg in &data.arguments {
+                    self.generate(arg.clone())?;
+                    self.buffer.push_str("\tstr x0, [sp, #-16]!\n");
+                }
+
+                for i in (0..data.arguments.len()).rev() {
+                    let reg = format!("x{}", i);
+                    self.buffer.push_str(&format!("\tldr {}, [sp], #16\n", reg));
+                }
+
+                self.buffer.push_str(&format!("\tbl _{}\n", data.name));
+                Ok(())
+            }
         }
     }
 
@@ -430,5 +444,39 @@ mod tests {
         assert!(assembly.contains("\tldr x0, [x29, #-16]"));
 
         assert!(assembly.contains("\tadd x0, x1, x0"));
+    }
+
+    #[test]
+    fn test_generate_function_call() {
+        use crate::parser::{CallData};
+
+        let ast = AstNode::Programm(vec![
+            AstNode::FunctionDecl(FunctionDeclData {
+                name: "main".to_string(),
+                return_type: Type::Int,
+                parameter: vec![],
+                body: Box::new(AstNode::BlockStatement(vec![
+                    AstNode::ReturnStatement(Box::new(AstNode::CallExpr(CallData {
+                        name: "add".to_string(),
+                        arguments: vec![
+                            AstNode::IntLiteralExpr(1),
+                            AstNode::IntLiteralExpr(3),
+                        ],
+                    }))),
+                ])),
+            }),
+        ]);
+
+        let mut generator = Generator::new();
+        generator.generate(ast).unwrap();
+
+        let assembly = generator.buffer;
+
+        assert!(assembly.contains("\tstr x0, [sp, #-16]!"));
+
+        assert!(assembly.contains("\tldr x0, [sp], #16"));
+        assert!(assembly.contains("\tldr x1, [sp], #16"));
+
+        assert!(assembly.contains("\tbl _add"));
     }
 }
