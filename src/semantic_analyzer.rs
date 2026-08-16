@@ -25,6 +25,7 @@ struct MetaData {
 pub struct Analyzer {
     scope_stack: Vec<HashMap<String, MetaData>>,
     current_return_type: Option<Type>,
+    struct_definitions: HashMap<String, HashMap<String, Type>>,
 }
 
 impl Analyzer {
@@ -32,6 +33,7 @@ impl Analyzer {
         Analyzer {
             scope_stack: vec![HashMap::new()],
             current_return_type: None,
+            struct_definitions: HashMap::new(),
         }
     }
 
@@ -113,21 +115,13 @@ impl Analyzer {
                 Ok(())
             }
             AstNode::AssignmentStatement(data) => {
-                let var_type = match self.lookup_variable(&data.name) {
-                    Some(meta) => meta.typ.clone(),
-                    None => {
-                        return Err(SemanticError::UndefinedVariable(format!(
-                            "Variable '{}' is not defined",
-                            data.name
-                        )));
-                    }
-                };
+                let target_type = self.analyze_expr(&data.target)?;
 
                 let val_type = self.analyze_expr(&data.value)?;
-                if val_type != var_type {
+                if val_type != target_type {
                     return Err(SemanticError::NotMatchingReturnType(format!(
-                        "Cannot assign type '{:?}' to variable '{}' of type '{:?}'",
-                        val_type, data.name, var_type
+                        "Cannot assign type '{:?}' to target of type '{:?}'",
+                        val_type, target_type
                     )));
                 }
                 Ok(())
@@ -178,6 +172,29 @@ impl Analyzer {
                     self.analyze(*else_branch)?;
                 }
 
+                Ok(())
+            }
+            AstNode::StructDecl(data) => {
+                if self.struct_definitions.contains_key(&data.name) {
+                    return Err(SemanticError::Redefinition(format!(
+                        "Struct '{}' is already defined",
+                        data.name
+                    )));
+                }
+
+                let mut fields_map = HashMap::new();
+                for field in data.fields {
+                    if fields_map.contains_key(&field.name) {
+                        return Err(SemanticError::Redefinition(format!(
+                            "Field '{}' is already defined in struct '{}'",
+                            field.name, data.name
+                        )));
+                    }
+                    fields_map.insert(field.name, field.param_typ);
+                }
+
+                self.struct_definitions
+                    .insert(data.name.clone(), fields_map);
                 Ok(())
             }
             node => {
@@ -290,6 +307,37 @@ impl Analyzer {
                 }
 
                 Ok(func_type)
+            }
+            AstNode::MemberAccessExpr(data) => {
+                let object_type = self.analyze_expr(&data.object)?;
+
+                let struct_name = match object_type {
+                    Type::Struct(name) => name,
+                    other => {
+                        return Err(SemanticError::NotMatchingReturnType(format!(
+                            "Member access '.' is not allowed on non-struct type '{:?}'",
+                            other
+                        )));
+                    }
+                };
+
+                let fields = match self.struct_definitions.get(&struct_name) {
+                    Some(f) => f,
+                    None => {
+                        return Err(SemanticError::UndefinedVariable(format!(
+                            "Unknown struct type '{}'",
+                            struct_name
+                        )));
+                    }
+                };
+
+                match fields.get(&data.member) {
+                    Some(field_type) => Ok(field_type.clone()),
+                    None => Err(SemanticError::UndefinedVariable(format!(
+                        "Struct '{}' has no field name '{}'",
+                        struct_name, data.member
+                    ))),
+                }
             }
             other => Err(SemanticError::InvalidReturnType(format!(
                 "Expression type not supported: {:?}",
@@ -589,7 +637,7 @@ mod tests {
                     initializer: Some(Box::new(AstNode::IntLiteralExpr(10))),
                 }),
                 AstNode::AssignmentStatement(crate::parser::AssignmentData {
-                    name: "x".to_string(),
+                    target: Box::new(AstNode::VariableExpr("x".to_string())),
                     value: Box::new(AstNode::BoolLiteralExpr(false)),
                 }),
                 AstNode::ReturnStatement(Box::new(AstNode::VariableExpr("x".to_string()))),
@@ -652,4 +700,138 @@ mod tests {
             "String-Variablen und deren Rückgabe sollten valide sein."
         );
     }
+    #[test]
+    fn test_semantic_valid_struct_and_member_access() {
+        use crate::parser::{MemberAccessData, StructDeclData, Parameter};
+
+        let ast = AstNode::Programm(vec![
+            AstNode::StructDecl(StructDeclData {
+                name: "Point".to_string(),
+                fields: vec![
+                    Parameter { name: "x".to_string(), param_typ: Type::Int },
+                    Parameter { name: "y".to_string(), param_typ: Type::Int },
+                ],
+            }),
+            AstNode::FunctionDecl(FunctionDeclData {
+                name: "main".to_string(),
+                return_type: Type::Int,
+                parameter: Vec::new(),
+                body: Box::new(AstNode::BlockStatement(vec![
+                    AstNode::VarDeclStatement(crate::parser::VarDeclData {
+                        name: "p".to_string(),
+                        var_typ: Type::Struct("Point".to_string()),
+                        initializer: None,
+                    }),
+                    AstNode::AssignmentStatement(crate::parser::AssignmentData {
+                        target: Box::new(AstNode::MemberAccessExpr(MemberAccessData {
+                            object: Box::new(AstNode::VariableExpr("p".to_string())),
+                            member: "x".to_string(),
+                        })),
+                        value: Box::new(AstNode::IntLiteralExpr(10)),
+                    }),
+                    AstNode::ReturnStatement(Box::new(AstNode::MemberAccessExpr(MemberAccessData {
+                        object: Box::new(AstNode::VariableExpr("p".to_string())),
+                        member: "x".to_string(),
+                    }))),
+                ])),
+            }),
+        ]);
+
+        let mut analyzer = Analyzer::new();
+        let result = analyzer.analyze(ast);
+        assert!(
+            result.is_ok(),
+            "Struct-Deklaration, Member-Zuweisung und Member-Access sollten valide sein."
+        );
+    }
+
+    #[test]
+    fn test_semantic_error_unknown_struct_field() {
+        use crate::parser::{MemberAccessData, StructDeclData, Parameter};
+
+        let ast = AstNode::Programm(vec![
+            AstNode::StructDecl(StructDeclData {
+                name: "Point".to_string(),
+                fields: vec![
+                    Parameter { name: "x".to_string(), param_typ: Type::Int },
+                ],
+            }),
+            AstNode::FunctionDecl(FunctionDeclData {
+                name: "main".to_string(),
+                return_type: Type::Int,
+                parameter: Vec::new(),
+                body: Box::new(AstNode::BlockStatement(vec![
+                    AstNode::VarDeclStatement(crate::parser::VarDeclData {
+                        name: "p".to_string(),
+                        var_typ: Type::Struct("Point".to_string()),
+                        initializer: None,
+                    }),
+                    AstNode::ReturnStatement(Box::new(AstNode::MemberAccessExpr(MemberAccessData {
+                        object: Box::new(AstNode::VariableExpr("p".to_string())),
+                        member: "y".to_string(), 
+                    }))),
+                ])),
+            }),
+        ]);
+
+        let mut analyzer = Analyzer::new();
+        let result = analyzer.analyze(ast);
+        assert!(
+            matches!(result, Err(SemanticError::UndefinedVariable(_))),
+            "Sollte einen Fehler werfen, wenn auf ein nicht existierendes Struct-Feld zugegriffen wird."
+        );
+    }
+
+    #[test]
+    fn test_semantic_error_member_access_on_primitive() {
+        use crate::parser::MemberAccessData;
+
+        let ast = AstNode::Programm(vec![AstNode::FunctionDecl(FunctionDeclData {
+            name: "main".to_string(),
+            return_type: Type::Int,
+            parameter: Vec::new(),
+            body: Box::new(AstNode::BlockStatement(vec![
+                AstNode::VarDeclStatement(crate::parser::VarDeclData {
+                    name: "x".to_string(),
+                    var_typ: Type::Int,
+                    initializer: Some(Box::new(AstNode::IntLiteralExpr(5))),
+                }),
+                AstNode::ReturnStatement(Box::new(AstNode::MemberAccessExpr(MemberAccessData {
+                    object: Box::new(AstNode::VariableExpr("x".to_string())), 
+                    member: "field".to_string(),
+                }))),
+            ])),
+        })]);
+
+        let mut analyzer = Analyzer::new();
+        let result = analyzer.analyze(ast);
+        assert!(
+            matches!(result, Err(SemanticError::NotMatchingReturnType(_))),
+            "Sollte einen Fehler werfen, wenn der Punkt-Operator auf einen primitiven Typ angewendet wird."
+        );
+    }
+
+    #[test]
+    fn test_semantic_error_struct_redefinition() {
+        use crate::parser::{StructDeclData, Parameter};
+
+        let ast = AstNode::Programm(vec![
+            AstNode::StructDecl(StructDeclData {
+                name: "Point".to_string(),
+                fields: vec![Parameter { name: "x".to_string(), param_typ: Type::Int }],
+            }),
+            AstNode::StructDecl(StructDeclData {
+                name: "Point".to_string(), 
+                fields: vec![Parameter { name: "y".to_string(), param_typ: Type::Int }],
+            }),
+        ]);
+
+        let mut analyzer = Analyzer::new();
+        let result = analyzer.analyze(ast);
+        assert!(
+            matches!(result, Err(SemanticError::Redefinition(_))),
+            "Sollte einen Redefinitionsfehler bei doppelten Struct-Namen werfen."
+        );
+    }
 }
+

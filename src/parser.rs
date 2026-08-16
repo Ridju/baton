@@ -22,21 +22,7 @@ pub enum Type {
     Bool,
     Float,
     String,
-}
-
-impl Type {
-    fn get_from_token(token: &Token) -> Result<Type, ParserError> {
-        match token {
-            Token::IntKeyword => Ok(Type::Int),
-            Token::BoolKeyword => Ok(Type::Bool),
-            Token::FloatKeyword => Ok(Type::Float),
-            Token::StringKeyword => Ok(Type::String),
-            other => Err(ParserError::UnexpectedToken {
-                expected: "'int', 'bool', 'float', 'string'".to_string(),
-                found: format!("{:?}", other),
-            }),
-        }
-    }
+    Struct(String),
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -82,7 +68,7 @@ pub struct VarDeclData {
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct AssignmentData {
-    pub name: String,
+    pub target: Box<AstNode>,
     pub value: Box<AstNode>,
 }
 
@@ -97,6 +83,18 @@ pub struct IfElseData {
 pub struct CallData {
     pub name: String,
     pub arguments: Vec<AstNode>,
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct StructDeclData {
+    pub name: String,
+    pub fields: Vec<Parameter>,
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct MemberAccessData {
+    pub object: Box<AstNode>,
+    pub member: String,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -115,6 +113,8 @@ pub enum AstNode {
     CallExpr(CallData),
     FloatLiteralExpr(f64),
     StringLiteralExpr(String),
+    StructDecl(StructDeclData),
+    MemberAccessExpr(MemberAccessData),
 }
 
 pub struct Parser<'a> {
@@ -132,6 +132,9 @@ impl<'a> Parser<'a> {
         let mut nodes = Vec::new();
         while let Some(token) = self.tokens.peek() {
             match token {
+                Token::StructKeyword => {
+                    nodes.push(self.parse_struct_decl()?);
+                }
                 Token::IntKeyword
                 | Token::BoolKeyword
                 | Token::FloatKeyword
@@ -147,7 +150,7 @@ impl<'a> Parser<'a> {
                 },
                 other => {
                     return Err(ParserError::UnexpectedToken {
-                        expected: "type keyword (int, bool, float, string)".to_string(),
+                        expected: "type keyword (int, bool, float, string) or struct".to_string(),
                         found: format!("{:?}", other),
                     });
                 }
@@ -157,8 +160,79 @@ impl<'a> Parser<'a> {
         Ok(AstNode::Programm(nodes))
     }
 
+    fn parse_struct_decl(&mut self) -> Result<AstNode, ParserError> {
+        self.tokens.next();
+        let name = match self.tokens.next() {
+            Some(Token::Identifier(name)) => name.clone(),
+            Some(other) => {
+                return Err(ParserError::UnexpectedToken {
+                    expected: "struct name".to_string(),
+                    found: format!("{:?}", other),
+                });
+            }
+            None => return Err(ParserError::UnexpectedEoF),
+        };
+
+        match self.tokens.next() {
+            Some(Token::LeftBrace) => {}
+            Some(other) => {
+                return Err(ParserError::UnexpectedToken {
+                    expected: "'{'".to_string(),
+                    found: format!("{:?}", other),
+                });
+            }
+            None => return Err(ParserError::UnexpectedEoF),
+        };
+
+        let mut fields = Vec::new();
+        loop {
+            if let Some(Token::RightBrace) = self.tokens.peek() {
+                self.tokens.next();
+                break;
+            }
+            let field_type = self.parse_type()?;
+            let field_name = match self.tokens.next() {
+                Some(Token::Identifier(name)) => name.clone(),
+                Some(other) => {
+                    return Err(ParserError::UnexpectedToken {
+                        expected: "field name".to_string(),
+                        found: format!("{:?}", other),
+                    });
+                }
+                None => return Err(ParserError::UnexpectedEoF),
+            };
+            match self.tokens.next() {
+                Some(Token::Semicolon) => {}
+                Some(other) => {
+                    return Err(ParserError::UnexpectedToken {
+                        expected: "';'".to_string(),
+                        found: format!("{:?}", other),
+                    });
+                }
+                None => return Err(ParserError::UnexpectedEoF),
+            };
+            fields.push(Parameter {
+                name: field_name,
+                param_typ: field_type,
+            });
+        }
+
+        match self.tokens.next() {
+            Some(Token::Semicolon) => {}
+            Some(other) => {
+                return Err(ParserError::UnexpectedToken {
+                    expected: "';'".to_string(),
+                    found: format!("{:?}", other),
+                });
+            }
+            None => return Err(ParserError::UnexpectedEoF),
+        };
+
+        Ok(AstNode::StructDecl(StructDeclData { name, fields }))
+    }
+
     fn parse_function(&mut self) -> Result<AstNode, ParserError> {
-        let return_type = Type::get_from_token(self.tokens.next().unwrap())?;
+        let return_type = self.parse_type()?;
         let name = match self.tokens.next() {
             Some(Token::Identifier(name)) => name.clone(),
             Some(other) => {
@@ -189,7 +263,7 @@ impl<'a> Parser<'a> {
                 break;
             }
 
-            let param_type = Type::get_from_token(self.tokens.next().unwrap())?;
+            let param_type = self.parse_type()?;
 
             let param_name = match self.tokens.next() {
                 Some(Token::Identifier(name)) => name.clone(),
@@ -267,17 +341,12 @@ impl<'a> Parser<'a> {
                 Some(Token::Identifier(_)) => {
                     let mut clone = self.tokens.clone();
                     clone.next();
-                    match clone.peek() {
-                        Some(Token::Equal) => {
-                            statements.push(self.parse_assignment()?);
-                        }
-                        Some(other) => {
-                            return Err(ParserError::UnexpectedToken {
-                                expected: "'='".to_string(),
-                                found: format!("{:?}", other),
-                            });
-                        }
-                        None => return Err(ParserError::UnexpectedEoF),
+                    let is_var_decl = matches!(clone.next(), Some(Token::Identifier(_)));
+
+                    if is_var_decl {
+                        statements.push(self.parse_var_decl()?);
+                    } else {
+                        statements.push(self.parse_assignment()?);
                     }
                 }
                 Some(Token::If) => {
@@ -297,7 +366,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_var_decl(&mut self) -> Result<AstNode, ParserError> {
-        let var_typ = Type::get_from_token(self.tokens.next().unwrap())?;
+        let var_typ = self.parse_type()?;
         let name = match self.tokens.next() {
             Some(Token::Identifier(name)) => name.clone(),
             Some(other) => {
@@ -401,10 +470,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_assignment(&mut self) -> Result<AstNode, ParserError> {
-        let name = match self.tokens.next() {
-            Some(Token::Identifier(name)) => name.clone(),
-            _ => unreachable!(),
-        };
+        let target = self.parse_factor()?;
 
         match self.tokens.next() {
             Some(Token::Equal) => {}
@@ -430,26 +496,29 @@ impl<'a> Parser<'a> {
             None => return Err(ParserError::UnexpectedEoF),
         }
 
-        Ok(AstNode::AssignmentStatement(AssignmentData { name, value }))
+        Ok(AstNode::AssignmentStatement(AssignmentData {
+            target: Box::new(target),
+            value,
+        }))
     }
 
     fn parse_factor(&mut self) -> Result<AstNode, ParserError> {
-        match self.tokens.next() {
+        let mut expr = match self.tokens.next() {
             Some(Token::IntNumber(num_str)) => {
                 let number = num_str.clone();
                 let num = number
                     .parse::<i16>()
                     .map_err(|_| ParserError::InvalidIntLiteral(number))?;
-                Ok(AstNode::IntLiteralExpr(num))
+                AstNode::IntLiteralExpr(num)
             }
-            Some(Token::Bool(val)) => Ok(AstNode::BoolLiteralExpr(*val)),
+            Some(Token::Bool(val)) => AstNode::BoolLiteralExpr(*val),
             Some(Token::FloatNumber(num_str)) => {
                 let num = num_str
                     .parse::<f64>()
                     .map_err(|_| ParserError::InvalidFloatLiteral(num_str.clone()))?;
-                Ok(AstNode::FloatLiteralExpr(num))
+                AstNode::FloatLiteralExpr(num)
             }
-            Some(Token::String(val)) => Ok(AstNode::StringLiteralExpr(val.clone())),
+            Some(Token::String(val)) => AstNode::StringLiteralExpr(val.clone()),
             Some(Token::Identifier(name)) => {
                 if let Some(Token::LeftParen) = self.tokens.peek() {
                     let mut args = Vec::new();
@@ -480,12 +549,12 @@ impl<'a> Parser<'a> {
                         }
                     }
 
-                    Ok(AstNode::CallExpr(CallData {
+                    AstNode::CallExpr(CallData {
                         name: name.clone(),
                         arguments: args,
-                    }))
+                    })
                 } else {
-                    Ok(AstNode::VariableExpr(name.clone()))
+                    AstNode::VariableExpr(name.clone())
                 }
             }
             Some(other) => {
@@ -495,7 +564,31 @@ impl<'a> Parser<'a> {
                 });
             }
             None => return Err(ParserError::UnexpectedEoF),
+        };
+
+        loop {
+            match self.tokens.peek() {
+                Some(Token::Dot) => {
+                    self.tokens.next();
+                    let member = match self.tokens.next() {
+                        Some(Token::Identifier(name)) => name.clone(),
+                        Some(other) => {
+                            return Err(ParserError::UnexpectedToken {
+                                expected: "identifier (field name)".to_string(),
+                                found: format!("{:?}", other),
+                            });
+                        }
+                        None => return Err(ParserError::UnexpectedEoF),
+                    };
+                    expr = AstNode::MemberAccessExpr(MemberAccessData {
+                        object: Box::new(expr),
+                        member,
+                    });
+                }
+                _ => break,
+            }
         }
+        Ok(expr)
     }
 
     fn parse_term(&mut self) -> Result<AstNode, ParserError> {
@@ -586,6 +679,21 @@ impl<'a> Parser<'a> {
 
     fn parse_expression(&mut self) -> Result<AstNode, ParserError> {
         self.parse_comparison()
+    }
+
+    fn parse_type(&mut self) -> Result<Type, ParserError> {
+        match self.tokens.next() {
+            Some(Token::IntKeyword) => Ok(Type::Int),
+            Some(Token::BoolKeyword) => Ok(Type::Bool),
+            Some(Token::FloatKeyword) => Ok(Type::Float),
+            Some(Token::StringKeyword) => Ok(Type::String),
+            Some(Token::Identifier(name)) => Ok(Type::Struct(name.clone())),
+            Some(other) => Err(ParserError::UnexpectedToken {
+                expected: "type keyword or struct name".to_string(),
+                found: format!("{:?}", other),
+            }),
+            None => Err(ParserError::UnexpectedEoF),
+        }
     }
 }
 
@@ -708,7 +816,7 @@ mod tests {
         assert_eq!(
             result,
             Err(ParserError::UnexpectedToken {
-                expected: "type keyword (int, bool, float, string)".to_string(),
+                expected: "type keyword (int, bool, float, string) or struct".to_string(),
                 found: "Semicolon".to_string(),
             })
         );
@@ -1002,5 +1110,114 @@ mod tests {
             }
         }
         panic!("AST structure did not match expected IfElseStatement layout");
+    }
+
+    #[test]
+    fn test_parse_struct_declaration() {
+        let tokens = vec![
+            Token::StructKeyword,
+            Token::Identifier("Point".to_string()),
+            Token::LeftBrace,
+            Token::IntKeyword,
+            Token::Identifier("x".to_string()),
+            Token::Semicolon,
+            Token::IntKeyword,
+            Token::Identifier("y".to_string()),
+            Token::Semicolon,
+            Token::RightBrace,
+            Token::Semicolon,
+        ];
+
+        let mut parser = Parser::new(&tokens);
+        let ast = parser.parse().unwrap();
+
+        let expected = AstNode::Programm(vec![AstNode::StructDecl(StructDeclData {
+            name: "Point".to_string(),
+            fields: vec![
+                Parameter { name: "x".to_string(), param_typ: Type::Int },
+                Parameter { name: "y".to_string(), param_typ: Type::Int },
+            ],
+        })]);
+
+        assert_eq!(ast, expected);
+    }
+
+    #[test]
+    fn test_parse_variable_decl_and_assignment() {
+        let tokens = vec![
+            Token::LeftBrace,
+            Token::IntKeyword,
+            Token::Identifier("a".to_string()),
+            Token::Equal,
+            Token::IntNumber("5".to_string()),
+            Token::Semicolon,
+            Token::Identifier("a".to_string()),
+            Token::Equal,
+            Token::IntNumber("10".to_string()),
+            Token::Semicolon,
+            Token::RightBrace,
+        ];
+
+        let mut parser = Parser::new(&tokens);
+        let ast = parser.parse_block().unwrap();
+
+        if let AstNode::BlockStatement(stmts) = *ast {
+            assert_eq!(stmts.len(), 2);
+            assert!(matches!(stmts[0], AstNode::VarDeclStatement(_)));
+            assert!(matches!(stmts[1], AstNode::AssignmentStatement(_)));
+        } else {
+            panic!("Expected BlockStatement");
+        }
+    }
+
+    #[test]
+    fn test_parse_member_access() {
+        let tokens = vec![
+            Token::Identifier("p".to_string()),
+            Token::Dot,
+            Token::Identifier("x".to_string()),
+            Token::Equal,
+            Token::IntNumber("5".to_string()),
+            Token::Semicolon,
+        ];
+
+        let mut parser = Parser::new(&tokens);
+        let ast = parser.parse_assignment().unwrap();
+
+        if let AstNode::AssignmentStatement(data) = ast {
+            assert!(matches!(*data.target, AstNode::MemberAccessExpr(_)));
+            if let AstNode::MemberAccessExpr(member) = *data.target {
+                assert_eq!(member.member, "x");
+                assert_eq!(member.object, Box::new(AstNode::VariableExpr("p".to_string())));
+            }
+        } else {
+            panic!("Expected AssignmentStatement");
+        }
+    }
+
+    #[test]
+    fn test_parse_struct_type_decl() {
+        let tokens = vec![
+            Token::IntKeyword,
+            Token::Identifier("main".to_string()),
+            Token::LeftParen,
+            Token::Identifier("Point".to_string()),
+            Token::Identifier("p".to_string()),
+            Token::RightParen,
+            Token::LeftBrace,
+            Token::Return,
+            Token::IntNumber("0".to_string()),
+            Token::Semicolon,
+            Token::RightBrace,
+        ];
+
+        let mut parser = Parser::new(&tokens);
+        let ast = parser.parse().unwrap();
+
+        if let AstNode::Programm(mut nodes) = ast {
+            if let AstNode::FunctionDecl(f) = nodes.remove(0) {
+                assert_eq!(f.parameter[0].param_typ, Type::Struct("Point".to_string()));
+            }
+        }
     }
 }

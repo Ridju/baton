@@ -13,6 +13,7 @@ pub enum Token {
     Bool(bool),
     FloatNumber(String),
     String(String),
+    StructKeyword,
 
     Plus,
     Minus,
@@ -31,6 +32,7 @@ pub enum Token {
     RightBrace,
     Comma,
     Semicolon,
+    Dot,
 
     If,
     Else,
@@ -164,6 +166,11 @@ impl<'a> Scanner<'a> {
                 '"' => {
                     tokens.push(self.scan_string()?);
                 }
+                '.' => {
+                    self.chars.next();
+                    self.column += 1;
+                    tokens.push(Token::Dot);
+                }
                 other => {
                     return Err(ScannerError {
                         message: format!("Unexpected character: '{}'", other),
@@ -232,6 +239,7 @@ impl<'a> Scanner<'a> {
             "true" => Token::Bool(true),
             "float" => Token::FloatKeyword,
             "string" => Token::StringKeyword,
+            "struct" => Token::StructKeyword,
             _ => Token::Identifier(token_string),
         };
 
@@ -626,6 +634,87 @@ mod tests {
                 Token::Equal,
                 Token::FloatNumber("3.0".to_string()),
             ]
+        );
+    }
+#[test]
+    fn test_struct_and_member_access() {
+        let input = "struct Point { int x; int y; } Point p; p.x = 5;";
+        let mut sc = Scanner::new(input);
+        let result = sc.scan_source().unwrap();
+        assert_eq!(
+            result,
+            vec![
+                Token::StructKeyword,
+                Token::Identifier("Point".to_string()),
+                Token::LeftBrace,
+                Token::IntKeyword,
+                Token::Identifier("x".to_string()),
+                Token::Semicolon,
+                Token::IntKeyword,
+                Token::Identifier("y".to_string()),
+                Token::Semicolon,
+                Token::RightBrace,
+                Token::Identifier("Point".to_string()),
+                Token::Identifier("p".to_string()),
+                Token::Semicolon,
+                Token::Identifier("p".to_string()),
+                Token::Dot,
+                Token::Identifier("x".to_string()),
+                Token::Equal,
+                Token::IntNumber("5".to_string()),
+                Token::Semicolon,
+            ]
+        );
+    }
+
+    #[test]
+    fn test_boolean_true_and_comparisons() {
+        let input = "bool flag = true; if (flag == true) {}";
+        let mut sc = Scanner::new(input);
+        let result = sc.scan_source().unwrap();
+        assert_eq!(
+            result,
+            vec![
+                Token::BoolKeyword,
+                Token::Identifier("flag".to_string()),
+                Token::Equal,
+                Token::Bool(true),
+                Token::Semicolon,
+                Token::If,
+                Token::LeftParen,
+                Token::Identifier("flag".to_string()),
+                Token::DoubleEqual,
+                Token::Bool(true),
+                Token::RightParen,
+                Token::LeftBrace,
+                Token::RightBrace,
+            ]
+        );
+    }
+
+    #[test]
+    fn test_unterminated_string_error() {
+        let input = "string s = \"hello;";
+        let mut sc = Scanner::new(input);
+        let result = sc.scan_source();
+        assert_eq!(
+            result,
+            Err(ScannerError {
+                message: "Unterminated string literal".to_string(),
+                line: 1,
+                column: 19,
+            })
+        );
+    }
+
+    #[test]
+    fn test_multiline_string() {
+        let input = "\"line1\nline2\"";
+        let mut sc = Scanner::new(input);
+        let result = sc.scan_source().unwrap();
+        assert_eq!(
+            result,
+            vec![Token::String("line1\nline2".to_string())]
         );
     }
 }

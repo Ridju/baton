@@ -22,6 +22,7 @@ pub struct Generator {
     local_vars: HashMap<String, VarInfo>,
     stack_offset: i32,
     label_count: usize,
+    struct_layouts: HashMap<String, HashMap<String, i32>>,
 }
 
 impl Generator {
@@ -31,6 +32,7 @@ impl Generator {
             local_vars: HashMap::new(),
             stack_offset: -8,
             label_count: 0,
+            struct_layouts: HashMap::new(),
         }
     }
 
@@ -41,6 +43,15 @@ impl Generator {
             AstNode::FloatLiteralExpr(_) => Type::Float,
             AstNode::StringLiteralExpr(_) => Type::String,
             AstNode::VariableExpr(name) => self.local_vars.get(name).unwrap().typ.clone(),
+            AstNode::MemberAccessExpr(data) => {
+                let obj_type = self.expr_type(&data.object);
+                if let Type::Struct(struct_name) = obj_type {
+                    if let Some(fields) = self.struct_layouts.get(&struct_name) {
+                        return Type::Int;
+                    }
+                }
+                Type::Int
+            }
             AstNode::BinaryExpr(data) => match data.operator {
                 BinaryOperator::LessThan
                 | BinaryOperator::GreaterThan
@@ -229,17 +240,31 @@ impl Generator {
             }
             AstNode::VarDeclStatement(var_data) => {
                 let is_float = var_data.var_typ == Type::Float;
+                let is_struct = matches!(var_data.var_typ, Type::Struct(_));
+
                 if let Some(init) = var_data.initializer {
                     self.generate(*init)?;
                 } else {
                     if is_float {
                         self.buffer.push_str("\tfmov d0, #0.0\n");
-                    } else {
+                    } else if !is_struct {
                         self.buffer.push_str("\tmov x0, #0\n");
                     }
                 }
 
                 let offset = self.stack_offset;
+
+                let size = match &var_data.var_typ {
+                    Type::Struct(struct_name) => {
+                        let fields = self
+                            .struct_layouts
+                            .get(struct_name)
+                            .expect("Unknown struct");
+                        (fields.len() * 8) as i32
+                    }
+                    _ => 8,
+                };
+
                 self.local_vars.insert(
                     var_data.name.clone(),
                     VarInfo {
@@ -247,35 +272,68 @@ impl Generator {
                         typ: var_data.var_typ.clone(),
                     },
                 );
-                self.stack_offset -= 8;
 
-                if is_float {
-                    self.buffer
-                        .push_str(&format!("\tstr d0, [x29, #{}]\n", offset))
-                } else {
-                    self.buffer
-                        .push_str(&format!("\tstr x0, [x29, #{}]\n", offset));
+                self.stack_offset -= size;
+
+                if !is_struct {
+                    if is_float {
+                        self.buffer
+                            .push_str(&format!("\tstr d0, [x29, #{}]\n", offset));
+                    } else {
+                        self.buffer
+                            .push_str(&format!("\tstr x0, [x29, #{}]\n", offset));
+                    }
                 }
                 Ok(())
             }
             AstNode::AssignmentStatement(assign_data) => {
-                let var_info = self.local_vars.get(&assign_data.name).unwrap_or_else(|| {
-                    panic!(
-                        "Undefined variable '{}' in code generator",
-                        assign_data.name
-                    );
-                });
-                let is_float = var_info.typ == Type::Float;
-                let offset = var_info.offset;
+                match &*assign_data.target {
+                    AstNode::VariableExpr(name) => {
+                        let var_info = self.local_vars.get(name).unwrap_or_else(|| {
+                            panic!("Undefined variable '{}' in code generator", name);
+                        });
+                        let is_float = var_info.typ == Type::Float;
+                        let offset = var_info.offset;
 
-                self.generate(*assign_data.value)?;
+                        self.generate(*assign_data.value)?;
 
-                if is_float {
-                    self.buffer
-                        .push_str(&format!("\tstr d0, [x29, #{}]\n", offset));
-                } else {
-                    self.buffer
-                        .push_str(&format!("\tstr x0, [x29, #{}]\n", offset));
+                        if is_float {
+                            self.buffer
+                                .push_str(&format!("\tstr d0, [x29, #{}]\n", offset));
+                        } else {
+                            self.buffer
+                                .push_str(&format!("\tstr x0, [x29, #{}]\n", offset));
+                        }
+                    }
+                    AstNode::MemberAccessExpr(member_data) => {
+                        let obj_type = self.expr_type(&member_data.object);
+                        let struct_name = match obj_type {
+                            Type::Struct(name) => name,
+                            _ => panic!("Member access on non-struct type"),
+                        };
+
+                        let offset = *self
+                            .struct_layouts
+                            .get(&struct_name)
+                            .expect("Unknown struct")
+                            .get(&member_data.member)
+                            .expect("Unknown struct field");
+
+                        self.generate(*member_data.object.clone())?;
+
+                        self.buffer.push_str("\tstr x0, [sp, #-16]!\n");
+
+                        self.generate(*assign_data.value)?;
+
+                        self.buffer.push_str("\tldr x1, [sp], #16\n");
+                        if offset != 0 {
+                            self.buffer
+                                .push_str(&format!("\tstr x0, [x1, #{}]\n", offset));
+                        } else {
+                            self.buffer.push_str("\tstr x0, [x1]\n");
+                        }
+                    }
+                    _ => panic!("Invalid assignment target"),
                 }
                 Ok(())
             }
@@ -283,15 +341,21 @@ impl Generator {
                 let var_info = self.local_vars.get(&name).unwrap_or_else(|| {
                     panic!("Undefined variable '{}' in code generator", name);
                 });
-                let is_float = var_info.typ == Type::Float;
                 let offset = var_info.offset;
 
-                if is_float {
-                    self.buffer
-                        .push_str(&format!("\tldr d0, [x29, #{}]\n", offset));
-                } else {
-                    self.buffer
-                        .push_str(&format!("\tldr x0, [x29, #{}]\n", offset));
+                match &var_info.typ {
+                    Type::Struct(_) => {
+                        self.buffer
+                            .push_str(&format!("\tadd x0, x29, #{}\n", offset));
+                    }
+                    Type::Float => {
+                        self.buffer
+                            .push_str(&format!("\tldr d0, [x29, #{}]\n", offset));
+                    }
+                    _ => {
+                        self.buffer
+                            .push_str(&format!("\tldr x0, [x29, #{}]\n", offset));
+                    }
                 }
 
                 Ok(())
@@ -347,6 +411,42 @@ impl Generator {
                 }
 
                 self.buffer.push_str(&format!("\tbl _{}\n", data.name));
+                Ok(())
+            }
+            AstNode::StructDecl(struct_data) => {
+                let mut field_offsets = HashMap::new();
+                let mut current_offset = 0;
+                for field in struct_data.fields {
+                    field_offsets.insert(field.name, current_offset);
+                    current_offset += 8;
+                }
+                self.struct_layouts
+                    .insert(struct_data.name.clone(), field_offsets);
+                Ok(())
+            }
+            AstNode::MemberAccessExpr(member_data) => {
+                self.generate(*member_data.object.clone())?;
+                let obj_type = self.expr_type(&member_data.object);
+                let struct_name = match obj_type {
+                    Type::Struct(name) => name,
+                    _ => panic!("Member access on non-struct type"),
+                };
+
+                let fields = self
+                    .struct_layouts
+                    .get(&struct_name)
+                    .expect("Unknown struct");
+                let offset = fields
+                    .get(&member_data.member)
+                    .expect("Unknown struct field");
+
+                if *offset != 0 {
+                    self.buffer
+                        .push_str(&format!("\tldr x0, [x0, #{}]\n", offset));
+                } else {
+                    self.buffer.push_str("\tldr x0, [x0]\n");
+                }
+
                 Ok(())
             }
         }
@@ -709,5 +809,77 @@ mod tests {
         assert!(assembly.contains("str d0, [sp, #-16]!"));
         assert!(assembly.contains("ldr d1, [sp], #16"));
         assert!(assembly.contains("fadd d0, d1, d0"));
+    }
+
+    #[test]
+    fn test_codegen_struct_decl_and_member_access() {
+        use crate::parser::{MemberAccessData, StructDeclData, Parameter};
+
+        let ast = AstNode::Programm(vec![
+            AstNode::StructDecl(StructDeclData {
+                name: "Point".to_string(),
+                fields: vec![
+                    Parameter { name: "x".to_string(), param_typ: Type::Int },
+                    Parameter { name: "y".to_string(), param_typ: Type::Int },
+                ],
+            }),
+            AstNode::FunctionDecl(FunctionDeclData {
+                name: "main".to_string(),
+                return_type: Type::Int,
+                parameter: Vec::new(),
+                body: Box::new(AstNode::BlockStatement(vec![
+                    AstNode::VarDeclStatement(crate::parser::VarDeclData {
+                        name: "p".to_string(),
+                        var_typ: Type::Struct("Point".to_string()),
+                        initializer: None,
+                    }),
+                    AstNode::AssignmentStatement(crate::parser::AssignmentData {
+                        target: Box::new(AstNode::MemberAccessExpr(MemberAccessData {
+                            object: Box::new(AstNode::VariableExpr("p".to_string())),
+                            member: "y".to_string(), 
+                        })),
+                        value: Box::new(AstNode::IntLiteralExpr(10)),
+                    }),
+                    AstNode::ReturnStatement(Box::new(AstNode::MemberAccessExpr(MemberAccessData {
+                        object: Box::new(AstNode::VariableExpr("p".to_string())),
+                        member: "y".to_string(),
+                    }))),
+                ])),
+            }),
+        ]);
+
+        let mut generator = Generator::new();
+        generator.generate(ast).unwrap();
+        let assembly = generator.buffer;
+
+        assert!(assembly.contains("_main:"));
+        assert!(assembly.contains("add x0, x29, #")); 
+        assert!(assembly.contains("str x0, [x1, #8]"));
+        assert!(assembly.contains("ret"));
+    }
+
+    #[test]
+    fn test_codegen_variable_declaration_with_initializer() {
+        let ast = AstNode::Programm(vec![AstNode::FunctionDecl(FunctionDeclData {
+            name: "main".to_string(),
+            return_type: Type::Int,
+            parameter: Vec::new(),
+            body: Box::new(AstNode::BlockStatement(vec![
+                AstNode::VarDeclStatement(crate::parser::VarDeclData {
+                    name: "a".to_string(),
+                    var_typ: Type::Int,
+                    initializer: Some(Box::new(AstNode::IntLiteralExpr(99))),
+                }),
+                AstNode::ReturnStatement(Box::new(AstNode::VariableExpr("a".to_string()))),
+            ])),
+        })]);
+
+        let mut generator = Generator::new();
+        generator.generate(ast).unwrap();
+        let assembly = generator.buffer;
+
+        assert!(assembly.contains("mov x0, #99"));
+        assert!(assembly.contains("str x0, [x29, #"));
+        assert!(assembly.contains("ldr x0, [x29, #"));
     }
 }
