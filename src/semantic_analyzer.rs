@@ -339,6 +339,25 @@ impl Analyzer {
                     ))),
                 }
             }
+            AstNode::ArrayIndexExpr(data) => {
+                let array_type = self.analyze_expr(&data.array)?;
+                let index_type = self.analyze_expr(&data.index)?;
+
+                if index_type != Type::Int {
+                    return Err(SemanticError::NotMatchingReturnType(format!(
+                        "Array index must be of type Int, found '{:?}'",
+                        index_type
+                    )));
+                }
+
+                match array_type {
+                    Type::Array(inner_type) => Ok(*inner_type),
+                    other => Err(SemanticError::NotMatchingReturnType(format!(
+                        "Indexing is not allowed on non-array type '{:?}'",
+                        other
+                    ))),
+                }
+            }
             other => Err(SemanticError::InvalidReturnType(format!(
                 "Expression type not supported: {:?}",
                 other
@@ -702,14 +721,20 @@ mod tests {
     }
     #[test]
     fn test_semantic_valid_struct_and_member_access() {
-        use crate::parser::{MemberAccessData, StructDeclData, Parameter};
+        use crate::parser::{MemberAccessData, Parameter, StructDeclData};
 
         let ast = AstNode::Programm(vec![
             AstNode::StructDecl(StructDeclData {
                 name: "Point".to_string(),
                 fields: vec![
-                    Parameter { name: "x".to_string(), param_typ: Type::Int },
-                    Parameter { name: "y".to_string(), param_typ: Type::Int },
+                    Parameter {
+                        name: "x".to_string(),
+                        param_typ: Type::Int,
+                    },
+                    Parameter {
+                        name: "y".to_string(),
+                        param_typ: Type::Int,
+                    },
                 ],
             }),
             AstNode::FunctionDecl(FunctionDeclData {
@@ -729,10 +754,12 @@ mod tests {
                         })),
                         value: Box::new(AstNode::IntLiteralExpr(10)),
                     }),
-                    AstNode::ReturnStatement(Box::new(AstNode::MemberAccessExpr(MemberAccessData {
-                        object: Box::new(AstNode::VariableExpr("p".to_string())),
-                        member: "x".to_string(),
-                    }))),
+                    AstNode::ReturnStatement(Box::new(AstNode::MemberAccessExpr(
+                        MemberAccessData {
+                            object: Box::new(AstNode::VariableExpr("p".to_string())),
+                            member: "x".to_string(),
+                        },
+                    ))),
                 ])),
             }),
         ]);
@@ -747,14 +774,15 @@ mod tests {
 
     #[test]
     fn test_semantic_error_unknown_struct_field() {
-        use crate::parser::{MemberAccessData, StructDeclData, Parameter};
+        use crate::parser::{MemberAccessData, Parameter, StructDeclData};
 
         let ast = AstNode::Programm(vec![
             AstNode::StructDecl(StructDeclData {
                 name: "Point".to_string(),
-                fields: vec![
-                    Parameter { name: "x".to_string(), param_typ: Type::Int },
-                ],
+                fields: vec![Parameter {
+                    name: "x".to_string(),
+                    param_typ: Type::Int,
+                }],
             }),
             AstNode::FunctionDecl(FunctionDeclData {
                 name: "main".to_string(),
@@ -766,10 +794,12 @@ mod tests {
                         var_typ: Type::Struct("Point".to_string()),
                         initializer: None,
                     }),
-                    AstNode::ReturnStatement(Box::new(AstNode::MemberAccessExpr(MemberAccessData {
-                        object: Box::new(AstNode::VariableExpr("p".to_string())),
-                        member: "y".to_string(), 
-                    }))),
+                    AstNode::ReturnStatement(Box::new(AstNode::MemberAccessExpr(
+                        MemberAccessData {
+                            object: Box::new(AstNode::VariableExpr("p".to_string())),
+                            member: "y".to_string(),
+                        },
+                    ))),
                 ])),
             }),
         ]);
@@ -797,7 +827,7 @@ mod tests {
                     initializer: Some(Box::new(AstNode::IntLiteralExpr(5))),
                 }),
                 AstNode::ReturnStatement(Box::new(AstNode::MemberAccessExpr(MemberAccessData {
-                    object: Box::new(AstNode::VariableExpr("x".to_string())), 
+                    object: Box::new(AstNode::VariableExpr("x".to_string())),
                     member: "field".to_string(),
                 }))),
             ])),
@@ -813,16 +843,22 @@ mod tests {
 
     #[test]
     fn test_semantic_error_struct_redefinition() {
-        use crate::parser::{StructDeclData, Parameter};
+        use crate::parser::{Parameter, StructDeclData};
 
         let ast = AstNode::Programm(vec![
             AstNode::StructDecl(StructDeclData {
                 name: "Point".to_string(),
-                fields: vec![Parameter { name: "x".to_string(), param_typ: Type::Int }],
+                fields: vec![Parameter {
+                    name: "x".to_string(),
+                    param_typ: Type::Int,
+                }],
             }),
             AstNode::StructDecl(StructDeclData {
-                name: "Point".to_string(), 
-                fields: vec![Parameter { name: "y".to_string(), param_typ: Type::Int }],
+                name: "Point".to_string(),
+                fields: vec![Parameter {
+                    name: "y".to_string(),
+                    param_typ: Type::Int,
+                }],
             }),
         ]);
 
@@ -833,5 +869,92 @@ mod tests {
             "Sollte einen Redefinitionsfehler bei doppelten Struct-Namen werfen."
         );
     }
-}
+    #[test]
+    fn test_semantic_valid_array_indexing() {
+        use crate::parser::{ArrayIndexData, VarDeclData};
 
+        let ast = AstNode::Programm(vec![AstNode::FunctionDecl(FunctionDeclData {
+            name: "main".to_string(),
+            return_type: Type::Int,
+            parameter: Vec::new(),
+            body: Box::new(AstNode::BlockStatement(vec![
+                AstNode::VarDeclStatement(VarDeclData {
+                    name: "arr".to_string(),
+                    var_typ: Type::Array(Box::new(Type::Int)),
+                    initializer: None,
+                }),
+                AstNode::ReturnStatement(Box::new(AstNode::ArrayIndexExpr(ArrayIndexData {
+                    array: Box::new(AstNode::VariableExpr("arr".to_string())),
+                    index: Box::new(AstNode::IntLiteralExpr(0)),
+                }))),
+            ])),
+        })]);
+
+        let mut analyzer = Analyzer::new();
+        let result = analyzer.analyze(ast);
+        assert!(
+            result.is_ok(),
+            "Gültiger Array-Index-Zugriff sollte erfolgreich analysiert werden."
+        );
+    }
+
+    #[test]
+    fn test_semantic_error_invalid_array_index_type() {
+        use crate::parser::{ArrayIndexData, VarDeclData};
+
+        let ast = AstNode::Programm(vec![AstNode::FunctionDecl(FunctionDeclData {
+            name: "main".to_string(),
+            return_type: Type::Int,
+            parameter: Vec::new(),
+            body: Box::new(AstNode::BlockStatement(vec![
+                AstNode::VarDeclStatement(VarDeclData {
+                    name: "arr".to_string(),
+                    var_typ: Type::Array(Box::new(Type::Int)),
+                    initializer: None,
+                }),
+                AstNode::ReturnStatement(Box::new(AstNode::ArrayIndexExpr(ArrayIndexData {
+                    array: Box::new(AstNode::VariableExpr("arr".to_string())),
+                    index: Box::new(AstNode::StringLiteralExpr("invalid_index".to_string())),
+                }))),
+            ])),
+        })]);
+
+        let mut analyzer = Analyzer::new();
+        let result = analyzer.analyze(ast);
+        assert!(
+            matches!(result, Err(SemanticError::NotMatchingReturnType(_))),
+            "Sollte einen Fehler werfen, wenn der Array-Index kein Integer ist."
+        );
+    }
+
+    #[test]
+    fn test_semantic_error_variable_redefinition() {
+        use crate::parser::VarDeclData;
+
+        let ast = AstNode::Programm(vec![AstNode::FunctionDecl(FunctionDeclData {
+            name: "main".to_string(),
+            return_type: Type::Int,
+            parameter: Vec::new(),
+            body: Box::new(AstNode::BlockStatement(vec![
+                AstNode::VarDeclStatement(VarDeclData {
+                    name: "x".to_string(),
+                    var_typ: Type::Int,
+                    initializer: Some(Box::new(AstNode::IntLiteralExpr(1))),
+                }),
+                AstNode::VarDeclStatement(VarDeclData {
+                    name: "x".to_string(),
+                    var_typ: Type::Int,
+                    initializer: Some(Box::new(AstNode::IntLiteralExpr(2))),
+                }),
+                AstNode::ReturnStatement(Box::new(AstNode::VariableExpr("x".to_string()))),
+            ])),
+        })]);
+
+        let mut analyzer = Analyzer::new();
+        let result = analyzer.analyze(ast);
+        assert!(
+            matches!(result, Err(SemanticError::Redefinition(_))),
+            "Sollte eine Redefinition von Variablen im selben Scope erkennen."
+        );
+    }
+}

@@ -1,3 +1,4 @@
+use crate::parser::CallData;
 use crate::parser::{AstNode, BinaryOperator, Type};
 use std::collections::HashMap;
 use std::fs;
@@ -60,6 +61,13 @@ impl Generator {
                 | BinaryOperator::DoubleEqual => Type::Bool,
                 _ => self.expr_type(&data.left),
             },
+            AstNode::ArrayIndexExpr(data) => {
+                let obj_type = self.expr_type(&data.array);
+                match obj_type {
+                    Type::Array(inner) => *inner,
+                    _ => panic!("Index expression on non-array type"),
+                }
+            }
             _ => Type::Int,
         }
     }
@@ -262,6 +270,7 @@ impl Generator {
                             .expect("Unknown struct");
                         (fields.len() * 8) as i32
                     }
+                    Type::Array(inner) => 80,
                     _ => 8,
                 };
 
@@ -275,7 +284,7 @@ impl Generator {
 
                 self.stack_offset -= size;
 
-                if !is_struct {
+                if !is_struct && !matches!(var_data.var_typ, Type::Array(_)) {
                     if is_float {
                         self.buffer
                             .push_str(&format!("\tstr d0, [x29, #{}]\n", offset));
@@ -333,6 +342,33 @@ impl Generator {
                             self.buffer.push_str("\tstr x0, [x1]\n");
                         }
                     }
+                    AstNode::ArrayIndexExpr(array_data) => {
+                        let array_type = self.expr_type(&array_data.array);
+                        let inner_type = match array_type {
+                            Type::Array(inner) => *inner,
+                            _ => panic!("Index assigment on non-array type"),
+                        };
+                        let is_float = inner_type == Type::Float;
+
+                        self.generate(*array_data.array.clone())?;
+                        self.buffer.push_str("\tstr x0, [sp, #-16]!\n");
+
+                        self.generate(*array_data.index.clone())?;
+                        self.buffer.push_str("\tldr x1, [sp], #16\n");
+                        self.buffer.push_str("\tlsl x0, x0, #3\n");
+                        self.buffer.push_str("\tadd x0, x1, x0\n");
+
+                        self.buffer.push_str("\tstr x0, [sp, #-16]!\n");
+
+                        self.generate(*assign_data.value)?;
+
+                        self.buffer.push_str("\tldr x1, [sp], #16\n");
+                        if is_float {
+                            self.buffer.push_str("\tstr d0, [x1]\n");
+                        } else {
+                            self.buffer.push_str("\tstr x0, [x1]\n");
+                        }
+                    }
                     _ => panic!("Invalid assignment target"),
                 }
                 Ok(())
@@ -344,7 +380,7 @@ impl Generator {
                 let offset = var_info.offset;
 
                 match &var_info.typ {
-                    Type::Struct(_) => {
+                    Type::Struct(_) | Type::Array(_) => {
                         self.buffer
                             .push_str(&format!("\tadd x0, x29, #{}\n", offset));
                     }
@@ -449,6 +485,32 @@ impl Generator {
 
                 Ok(())
             }
+            AstNode::ArrayIndexExpr(data) => {
+                let array_type = self.expr_type(&data.array);
+                let inner_type = match array_type {
+                    Type::Array(inner) => *inner,
+                    _ => panic!("Index expression on non-array type"),
+                };
+
+                self.generate(*data.array.clone())?;
+                self.buffer.push_str("\tstr x0, [sp, #-16]!\n");
+
+                self.generate(*data.index.clone())?;
+
+                self.buffer.push_str("\tldr x1, [sp], #16\n");
+
+                self.buffer.push_str("\tlsl x0, x0, #3\n");
+
+                self.buffer.push_str("\tadd x0, x1, x0\n");
+
+                if inner_type == Type::Float {
+                    self.buffer.push_str("\tldr d0, [x0]\n");
+                } else {
+                    self.buffer.push_str("\tldr x0, [x0]\n");
+                }
+
+                Ok(())
+            }
         }
     }
 
@@ -504,7 +566,7 @@ impl Generator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::parser::{AstNode, BinaryExpData, FunctionDeclData, Type};
+    use crate::parser::{ArrayIndexData, AstNode, BinaryExpData, FunctionDeclData, Type};
 
     #[test]
     fn test_generate_simple_main() {
@@ -813,14 +875,20 @@ mod tests {
 
     #[test]
     fn test_codegen_struct_decl_and_member_access() {
-        use crate::parser::{MemberAccessData, StructDeclData, Parameter};
+        use crate::parser::{MemberAccessData, Parameter, StructDeclData};
 
         let ast = AstNode::Programm(vec![
             AstNode::StructDecl(StructDeclData {
                 name: "Point".to_string(),
                 fields: vec![
-                    Parameter { name: "x".to_string(), param_typ: Type::Int },
-                    Parameter { name: "y".to_string(), param_typ: Type::Int },
+                    Parameter {
+                        name: "x".to_string(),
+                        param_typ: Type::Int,
+                    },
+                    Parameter {
+                        name: "y".to_string(),
+                        param_typ: Type::Int,
+                    },
                 ],
             }),
             AstNode::FunctionDecl(FunctionDeclData {
@@ -836,14 +904,16 @@ mod tests {
                     AstNode::AssignmentStatement(crate::parser::AssignmentData {
                         target: Box::new(AstNode::MemberAccessExpr(MemberAccessData {
                             object: Box::new(AstNode::VariableExpr("p".to_string())),
-                            member: "y".to_string(), 
+                            member: "y".to_string(),
                         })),
                         value: Box::new(AstNode::IntLiteralExpr(10)),
                     }),
-                    AstNode::ReturnStatement(Box::new(AstNode::MemberAccessExpr(MemberAccessData {
-                        object: Box::new(AstNode::VariableExpr("p".to_string())),
-                        member: "y".to_string(),
-                    }))),
+                    AstNode::ReturnStatement(Box::new(AstNode::MemberAccessExpr(
+                        MemberAccessData {
+                            object: Box::new(AstNode::VariableExpr("p".to_string())),
+                            member: "y".to_string(),
+                        },
+                    ))),
                 ])),
             }),
         ]);
@@ -853,7 +923,7 @@ mod tests {
         let assembly = generator.buffer;
 
         assert!(assembly.contains("_main:"));
-        assert!(assembly.contains("add x0, x29, #")); 
+        assert!(assembly.contains("add x0, x29, #"));
         assert!(assembly.contains("str x0, [x1, #8]"));
         assert!(assembly.contains("ret"));
     }
@@ -881,5 +951,35 @@ mod tests {
         assert!(assembly.contains("mov x0, #99"));
         assert!(assembly.contains("str x0, [x29, #"));
         assert!(assembly.contains("ldr x0, [x29, #"));
+    }
+
+    #[test]
+    fn test_codegen_array_index_expression() {
+        use crate::parser::{ArrayIndexData, VarDeclData};
+
+        let ast = AstNode::Programm(vec![AstNode::FunctionDecl(FunctionDeclData {
+            name: "main".to_string(),
+            return_type: Type::Int,
+            parameter: Vec::new(),
+            body: Box::new(AstNode::BlockStatement(vec![
+                AstNode::VarDeclStatement(VarDeclData {
+                    name: "arr".to_string(),
+                    var_typ: Type::Array(Box::new(Type::Int)),
+                    initializer: None,
+                }),
+                AstNode::ReturnStatement(Box::new(AstNode::ArrayIndexExpr(ArrayIndexData {
+                    array: Box::new(AstNode::VariableExpr("arr".to_string())),
+                    index: Box::new(AstNode::IntLiteralExpr(2)),
+                }))),
+            ])),
+        })]);
+
+        let mut generator = Generator::new();
+        generator.generate(ast).unwrap();
+
+        let assembly = generator.buffer;
+        assert!(assembly.contains("lsl x0, x0, #3"));
+        assert!(assembly.contains("add x0, x1, x0"));
+        assert!(assembly.contains("ldr x0, [x0]"));
     }
 }

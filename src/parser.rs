@@ -23,6 +23,7 @@ pub enum Type {
     Float,
     String,
     Struct(String),
+    Array(Box<Type>),
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -98,6 +99,12 @@ pub struct MemberAccessData {
 }
 
 #[derive(Debug, PartialEq, Clone)]
+pub struct ArrayIndexData {
+    pub array: Box<AstNode>,
+    pub index: Box<AstNode>,
+}
+
+#[derive(Debug, PartialEq, Clone)]
 pub enum AstNode {
     Programm(Vec<AstNode>),
     FunctionDecl(FunctionDeclData),
@@ -115,6 +122,7 @@ pub enum AstNode {
     StringLiteralExpr(String),
     StructDecl(StructDeclData),
     MemberAccessExpr(MemberAccessData),
+    ArrayIndexExpr(ArrayIndexData),
 }
 
 pub struct Parser<'a> {
@@ -585,6 +593,24 @@ impl<'a> Parser<'a> {
                         member,
                     });
                 }
+                Some(Token::LeftBracket) => {
+                    self.tokens.next();
+                    let index = self.parse_expression()?;
+                    match self.tokens.next() {
+                        Some(Token::RightBracket) => {}
+                        Some(other) => {
+                            return Err(ParserError::UnexpectedToken {
+                                expected: "']'".to_string(),
+                                found: format!("{:?}", other),
+                            });
+                        }
+                        None => return Err(ParserError::UnexpectedEoF),
+                    };
+                    expr = AstNode::ArrayIndexExpr(ArrayIndexData {
+                        array: Box::new(expr),
+                        index: Box::new(index),
+                    });
+                }
                 _ => break,
             }
         }
@@ -682,18 +708,37 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_type(&mut self) -> Result<Type, ParserError> {
-        match self.tokens.next() {
-            Some(Token::IntKeyword) => Ok(Type::Int),
-            Some(Token::BoolKeyword) => Ok(Type::Bool),
-            Some(Token::FloatKeyword) => Ok(Type::Float),
-            Some(Token::StringKeyword) => Ok(Type::String),
-            Some(Token::Identifier(name)) => Ok(Type::Struct(name.clone())),
-            Some(other) => Err(ParserError::UnexpectedToken {
-                expected: "type keyword or struct name".to_string(),
-                found: format!("{:?}", other),
-            }),
-            None => Err(ParserError::UnexpectedEoF),
+        let mut base_type = match self.tokens.next() {
+            Some(Token::IntKeyword) => Type::Int,
+            Some(Token::BoolKeyword) => Type::Bool,
+            Some(Token::FloatKeyword) => Type::Float,
+            Some(Token::StringKeyword) => Type::String,
+            Some(Token::Identifier(name)) => Type::Struct(name.clone()),
+            Some(other) => {
+                return Err(ParserError::UnexpectedToken {
+                    expected: "type keyword or struct name".to_string(),
+                    found: format!("{:?}", other),
+                });
+            }
+            None => return Err(ParserError::UnexpectedEoF),
+        };
+
+        if let Some(Token::LeftBracket) = self.tokens.peek() {
+            self.tokens.next();
+            match self.tokens.next() {
+                Some(Token::RightBracket) => {
+                    base_type = Type::Array(Box::new(base_type));
+                }
+                Some(other) => {
+                    return Err(ParserError::UnexpectedToken {
+                        expected: "']'".to_string(),
+                        found: format!("{:?}", other),
+                    });
+                }
+                None => return Err(ParserError::UnexpectedEoF),
+            }
         }
+        Ok(base_type)
     }
 }
 
@@ -1134,8 +1179,14 @@ mod tests {
         let expected = AstNode::Programm(vec![AstNode::StructDecl(StructDeclData {
             name: "Point".to_string(),
             fields: vec![
-                Parameter { name: "x".to_string(), param_typ: Type::Int },
-                Parameter { name: "y".to_string(), param_typ: Type::Int },
+                Parameter {
+                    name: "x".to_string(),
+                    param_typ: Type::Int,
+                },
+                Parameter {
+                    name: "y".to_string(),
+                    param_typ: Type::Int,
+                },
             ],
         })]);
 
@@ -1188,7 +1239,10 @@ mod tests {
             assert!(matches!(*data.target, AstNode::MemberAccessExpr(_)));
             if let AstNode::MemberAccessExpr(member) = *data.target {
                 assert_eq!(member.member, "x");
-                assert_eq!(member.object, Box::new(AstNode::VariableExpr("p".to_string())));
+                assert_eq!(
+                    member.object,
+                    Box::new(AstNode::VariableExpr("p".to_string()))
+                );
             }
         } else {
             panic!("Expected AssignmentStatement");
@@ -1218,6 +1272,45 @@ mod tests {
             if let AstNode::FunctionDecl(f) = nodes.remove(0) {
                 assert_eq!(f.parameter[0].param_typ, Type::Struct("Point".to_string()));
             }
+        }
+    }
+    #[test]
+    fn test_parse_array_declaration_and_index() {
+        let tokens = vec![
+            Token::IntKeyword,
+            Token::Identifier("main".to_string()),
+            Token::LeftParen,
+            Token::RightParen,
+            Token::LeftBrace,
+            Token::IntKeyword,
+            Token::LeftBracket,
+            Token::RightBracket,
+            Token::Identifier("arr".to_string()),
+            Token::Semicolon,
+            Token::Identifier("arr".to_string()),
+            Token::LeftBracket,
+            Token::IntNumber("0".to_string()),
+            Token::RightBracket,
+            Token::Equal,
+            Token::IntNumber("42".to_string()),
+            Token::Semicolon,
+            Token::Return,
+            Token::Identifier("arr".to_string()),
+            Token::LeftBracket,
+            Token::IntNumber("0".to_string()),
+            Token::RightBracket,
+            Token::Semicolon,
+            Token::RightBrace,
+        ];
+
+        let mut parser = Parser::new(&tokens);
+        let ast = parser.parse().unwrap();
+
+        match ast {
+            AstNode::Programm(nodes) => {
+                assert_eq!(nodes.len(), 1);
+            }
+            _ => panic!("Expected Programm AST node"),
         }
     }
 }

@@ -30,6 +30,8 @@ pub enum Token {
     RightParen,
     LeftBrace,
     RightBrace,
+    LeftBracket,
+    RightBracket,
     Comma,
     Semicolon,
     Dot,
@@ -170,6 +172,16 @@ impl<'a> Scanner<'a> {
                     self.chars.next();
                     self.column += 1;
                     tokens.push(Token::Dot);
+                }
+                '[' => {
+                    self.chars.next();
+                    self.column += 1;
+                    tokens.push(Token::LeftBracket);
+                }
+                ']' => {
+                    self.chars.next();
+                    self.column += 1;
+                    tokens.push(Token::RightBracket);
                 }
                 other => {
                     return Err(ScannerError {
@@ -636,7 +648,7 @@ mod tests {
             ]
         );
     }
-#[test]
+    #[test]
     fn test_struct_and_member_access() {
         let input = "struct Point { int x; int y; } Point p; p.x = 5;";
         let mut sc = Scanner::new(input);
@@ -712,9 +724,72 @@ mod tests {
         let input = "\"line1\nline2\"";
         let mut sc = Scanner::new(input);
         let result = sc.scan_source().unwrap();
+        assert_eq!(result, vec![Token::String("line1\nline2".to_string())]);
+    }
+
+    #[test]
+    fn test_brackets_token() {
+        let input = "int arr[10];";
+        let mut sc = Scanner::new(input);
+        let result = sc.scan_source().unwrap();
         assert_eq!(
             result,
-            vec![Token::String("line1\nline2".to_string())]
+            vec![
+                Token::IntKeyword,
+                Token::Identifier("arr".to_string()),
+                Token::LeftBracket,
+                Token::IntNumber("10".to_string()),
+                Token::RightBracket,
+                Token::Semicolon,
+            ]
+        );
+    }
+
+    #[test]
+    fn test_array_index_assignment() {
+        let input = "arr[0] = 42;";
+        let mut sc = Scanner::new(input);
+        let result = sc.scan_source().unwrap();
+        assert_eq!(
+            result,
+            vec![
+                Token::Identifier("arr".to_string()),
+                Token::LeftBracket,
+                Token::IntNumber("0".to_string()),
+                Token::RightBracket,
+                Token::Equal,
+                Token::IntNumber("42".to_string()),
+                Token::Semicolon,
+            ]
+        );
+    }
+
+    #[test]
+    fn test_line_and_column_increment_on_newlines() {
+        let input = "int\na;";
+        let mut sc = Scanner::new(input);
+        let result = sc.scan_source().unwrap();
+        assert_eq!(
+            result,
+            vec![
+                Token::IntKeyword,
+                Token::Identifier("a".to_string()),
+                Token::Semicolon,
+            ]
+        );
+    }
+
+    #[test]
+    fn test_float_number_variations() {
+        let input = "0.0 123.456";
+        let mut sc = Scanner::new(input);
+        let result = sc.scan_source().unwrap();
+        assert_eq!(
+            result,
+            vec![
+                Token::FloatNumber("0.0".to_string()),
+                Token::FloatNumber("123.456".to_string()),
+            ]
         );
     }
 }
