@@ -1019,7 +1019,7 @@ mod tests {
             parameter: Vec::new(),
             body: Box::new(AstNode::BlockStatement(vec![
                 AstNode::WhileStatement(crate::parser::WhileLoopData {
-                    condition_expr: Box::new(AstNode::IntLiteralExpr(1)), // Fehler: Int statt Bool!
+                    condition_expr: Box::new(AstNode::IntLiteralExpr(1)),
                     body: Box::new(AstNode::BlockStatement(vec![])),
                 }),
                 AstNode::ReturnStatement(Box::new(AstNode::IntLiteralExpr(0))),

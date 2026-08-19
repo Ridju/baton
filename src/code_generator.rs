@@ -1042,7 +1042,6 @@ mod tests {
 
         let assembly = generator.buffer;
 
-        // Prüfen, ob die korrekten Label- und Schleifenstrukturen generiert wurden
         assert!(assembly.contains(".L_while_start_0:"));
         assert!(assembly.contains(".L_while_end_0:"));
         assert!(assembly.contains("\tcbz x0, .L_while_end_0"));

@@ -125,8 +125,20 @@ impl<'a> Scanner<'a> {
                 }
                 '/' => {
                     self.chars.next();
-                    tokens.push(Token::Slash);
                     self.column += 1;
+                    if self.chars.peek() == Some(&'/') {
+                        self.chars.next();
+                        self.column += 1;
+                        while let Some(&next_c) = self.chars.peek() {
+                            if next_c == '\n' {
+                                break;
+                            }
+                            self.chars.next();
+                            self.column += 1;
+                        }
+                    } else {
+                        tokens.push(Token::Slash);
+                    }
                 }
                 '=' => {
                     self.chars.next();
@@ -825,5 +837,43 @@ mod tests {
                 Token::RightBrace,
             ]
         );
+    }
+    #[test]
+    fn test_scanner_comments() {
+        let source = "
+            // This is a comment at the beginning
+            int x = 10; // A comment at the end of the line
+            // Another comment
+            while (x > 0) {
+                x = x - 1; // comment inside the loop 
+            }
+        ";
+
+        let mut scanner = Scanner::new(source);
+        let tokens = scanner.scan_source().unwrap();
+
+        let expected = vec![
+            Token::IntKeyword,
+            Token::Identifier("x".to_string()),
+            Token::Equal,
+            Token::IntNumber("10".to_string()),
+            Token::Semicolon,
+            Token::While,
+            Token::LeftParen,
+            Token::Identifier("x".to_string()),
+            Token::GreaterThan,
+            Token::IntNumber("0".to_string()),
+            Token::RightParen,
+            Token::LeftBrace,
+            Token::Identifier("x".to_string()),
+            Token::Equal,
+            Token::Identifier("x".to_string()),
+            Token::Minus,
+            Token::IntNumber("1".to_string()),
+            Token::Semicolon,
+            Token::RightBrace,
+        ];
+
+        assert_eq!(tokens, expected);
     }
 }
