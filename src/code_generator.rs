@@ -511,6 +511,26 @@ impl Generator {
 
                 Ok(())
             }
+            AstNode::WhileStatement(data) => {
+                let label_idx = self.label_count;
+                self.label_count += 1;
+
+                let start_label = format!(".L_while_start_{}", label_idx);
+                let end_label = format!(".L_while_end_{}", label_idx);
+
+                self.buffer.push_str(&format!("{}:\n", start_label));
+
+                self.generate(*data.condition_expr)?;
+
+                self.buffer.push_str(&format!("\tcbz x0, {}\n", end_label));
+
+                self.generate(*data.body)?;
+
+                self.buffer.push_str(&format!("\tb {}\n", start_label));
+                self.buffer.push_str(&format!("{}:\n", end_label));
+
+                Ok(())
+            }
         }
     }
 
@@ -981,5 +1001,54 @@ mod tests {
         assert!(assembly.contains("lsl x0, x0, #3"));
         assert!(assembly.contains("add x0, x1, x0"));
         assert!(assembly.contains("ldr x0, [x0]"));
+    }
+    #[test]
+    fn test_codegen_while_statement() {
+        use crate::parser::{AssignmentData, BinaryExpData, BinaryOperator, WhileLoopData};
+
+        let ast = AstNode::Programm(vec![AstNode::FunctionDecl(FunctionDeclData {
+            name: "main".to_string(),
+            return_type: Type::Int,
+            parameter: Vec::new(),
+            body: Box::new(AstNode::BlockStatement(vec![
+                AstNode::VarDeclStatement(crate::parser::VarDeclData {
+                    name: "i".to_string(),
+                    var_typ: Type::Int,
+                    initializer: Some(Box::new(AstNode::IntLiteralExpr(0))),
+                }),
+                AstNode::WhileStatement(WhileLoopData {
+                    condition_expr: Box::new(AstNode::BinaryExpr(BinaryExpData {
+                        left: Box::new(AstNode::VariableExpr("i".to_string())),
+                        right: Box::new(AstNode::IntLiteralExpr(5)),
+                        operator: BinaryOperator::LessThan,
+                    })),
+                    body: Box::new(AstNode::BlockStatement(vec![AstNode::AssignmentStatement(
+                        AssignmentData {
+                            target: Box::new(AstNode::VariableExpr("i".to_string())),
+                            value: Box::new(AstNode::BinaryExpr(BinaryExpData {
+                                left: Box::new(AstNode::VariableExpr("i".to_string())),
+                                right: Box::new(AstNode::IntLiteralExpr(1)),
+                                operator: BinaryOperator::Add,
+                            })),
+                        },
+                    )])),
+                }),
+                AstNode::ReturnStatement(Box::new(AstNode::VariableExpr("i".to_string()))),
+            ])),
+        })]);
+
+        let mut generator = Generator::new();
+        generator.generate(ast).unwrap();
+
+        let assembly = generator.buffer;
+
+        // Prüfen, ob die korrekten Label- und Schleifenstrukturen generiert wurden
+        assert!(assembly.contains(".L_while_start_0:"));
+        assert!(assembly.contains(".L_while_end_0:"));
+        assert!(assembly.contains("\tcbz x0, .L_while_end_0"));
+        assert!(assembly.contains("\tb .L_while_start_0"));
+        assert!(assembly.contains("cmp"));
+        assert!(assembly.contains("cset"));
+        assert!(assembly.contains("lt"));
     }
 }

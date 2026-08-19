@@ -174,6 +174,19 @@ impl Analyzer {
 
                 Ok(())
             }
+            AstNode::WhileStatement(data) => {
+                let cond_type = self.analyze_expr(&data.condition_expr)?;
+                if cond_type != Type::Bool {
+                    return Err(SemanticError::NotMatchingReturnType(format!(
+                        "While ocndition must be of type bool, found '{:?}'",
+                        cond_type
+                    )));
+                }
+
+                self.analyze(*data.body)?;
+
+                Ok(())
+            }
             AstNode::StructDecl(data) => {
                 if self.struct_definitions.contains_key(&data.name) {
                     return Err(SemanticError::Redefinition(format!(
@@ -955,6 +968,69 @@ mod tests {
         assert!(
             matches!(result, Err(SemanticError::Redefinition(_))),
             "Sollte eine Redefinition von Variablen im selben Scope erkennen."
+        );
+    }
+    #[test]
+    fn test_semantic_valid_while_loop() {
+        let ast = AstNode::Programm(vec![AstNode::FunctionDecl(FunctionDeclData {
+            name: "main".to_string(),
+            return_type: Type::Int,
+            parameter: Vec::new(),
+            body: Box::new(AstNode::BlockStatement(vec![
+                AstNode::VarDeclStatement(crate::parser::VarDeclData {
+                    name: "i".to_string(),
+                    var_typ: Type::Int,
+                    initializer: Some(Box::new(AstNode::IntLiteralExpr(0))),
+                }),
+                AstNode::WhileStatement(crate::parser::WhileLoopData {
+                    condition_expr: Box::new(AstNode::BinaryExpr(crate::parser::BinaryExpData {
+                        left: Box::new(AstNode::VariableExpr("i".to_string())),
+                        right: Box::new(AstNode::IntLiteralExpr(5)),
+                        operator: crate::parser::BinaryOperator::LessThan,
+                    })),
+                    body: Box::new(AstNode::BlockStatement(vec![AstNode::AssignmentStatement(
+                        crate::parser::AssignmentData {
+                            target: Box::new(AstNode::VariableExpr("i".to_string())),
+                            value: Box::new(AstNode::BinaryExpr(crate::parser::BinaryExpData {
+                                left: Box::new(AstNode::VariableExpr("i".to_string())),
+                                right: Box::new(AstNode::IntLiteralExpr(1)),
+                                operator: crate::parser::BinaryOperator::Add,
+                            })),
+                        },
+                    )])),
+                }),
+                AstNode::ReturnStatement(Box::new(AstNode::VariableExpr("i".to_string()))),
+            ])),
+        })]);
+
+        let mut analyzer = Analyzer::new();
+        let result = analyzer.analyze(ast);
+        assert!(
+            result.is_ok(),
+            "Der Analyzer sollte eine valide While-Schleife mit boolscher Bedingung akzeptieren."
+        );
+    }
+
+    #[test]
+    fn test_semantic_error_while_non_bool_condition() {
+        let ast = AstNode::Programm(vec![AstNode::FunctionDecl(FunctionDeclData {
+            name: "main".to_string(),
+            return_type: Type::Int,
+            parameter: Vec::new(),
+            body: Box::new(AstNode::BlockStatement(vec![
+                AstNode::WhileStatement(crate::parser::WhileLoopData {
+                    condition_expr: Box::new(AstNode::IntLiteralExpr(1)), // Fehler: Int statt Bool!
+                    body: Box::new(AstNode::BlockStatement(vec![])),
+                }),
+                AstNode::ReturnStatement(Box::new(AstNode::IntLiteralExpr(0))),
+            ])),
+        })]);
+
+        let mut analyzer = Analyzer::new();
+        let result = analyzer.analyze(ast);
+        assert!(
+            matches!(result, Err(SemanticError::NotMatchingReturnType(_))),
+            "Sollte einen Fehler werfen, wenn die While-Bedingung kein Bool ist."
         );
     }
 }

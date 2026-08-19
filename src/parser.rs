@@ -105,6 +105,12 @@ pub struct ArrayIndexData {
 }
 
 #[derive(Debug, PartialEq, Clone)]
+pub struct WhileLoopData {
+    pub condition_expr: Box<AstNode>,
+    pub body: Box<AstNode>,
+}
+
+#[derive(Debug, PartialEq, Clone)]
 pub enum AstNode {
     Programm(Vec<AstNode>),
     FunctionDecl(FunctionDeclData),
@@ -123,6 +129,7 @@ pub enum AstNode {
     StructDecl(StructDeclData),
     MemberAccessExpr(MemberAccessData),
     ArrayIndexExpr(ArrayIndexData),
+    WhileStatement(WhileLoopData),
 }
 
 pub struct Parser<'a> {
@@ -359,6 +366,9 @@ impl<'a> Parser<'a> {
                 }
                 Some(Token::If) => {
                     statements.push(self.parse_if_statement()?);
+                }
+                Some(Token::While) => {
+                    statements.push(self.parse_while_statement()?);
                 }
                 Some(other) => {
                     return Err(ParserError::UnexpectedToken {
@@ -739,6 +749,41 @@ impl<'a> Parser<'a> {
             }
         }
         Ok(base_type)
+    }
+
+    fn parse_while_statement(&mut self) -> Result<AstNode, ParserError> {
+        self.tokens.next();
+
+        match self.tokens.next() {
+            Some(Token::LeftParen) => {}
+            Some(other) => {
+                return Err(ParserError::UnexpectedToken {
+                    expected: "'('".to_string(),
+                    found: format!("{:?}", other),
+                });
+            }
+            None => return Err(ParserError::UnexpectedEoF),
+        };
+
+        let condition = self.parse_comparison()?;
+
+        match self.tokens.next() {
+            Some(Token::RightParen) => {}
+            Some(other) => {
+                return Err(ParserError::UnexpectedToken {
+                    expected: "'('".to_string(),
+                    found: format!("{:?}", other),
+                });
+            }
+            None => return Err(ParserError::UnexpectedEoF),
+        };
+
+        let body = self.parse_block()?;
+
+        Ok(AstNode::WhileStatement(WhileLoopData {
+            condition_expr: Box::new(condition),
+            body,
+        }))
     }
 }
 
@@ -1312,5 +1357,65 @@ mod tests {
             }
             _ => panic!("Expected Programm AST node"),
         }
+    }
+
+    #[test]
+    fn test_parse_while_statement() {
+        let tokens = vec![
+            Token::IntKeyword,
+            Token::Identifier("main".to_string()),
+            Token::LeftParen,
+            Token::RightParen,
+            Token::LeftBrace,
+            Token::While,
+            Token::LeftParen,
+            Token::Identifier("i".to_string()),
+            Token::LessThan,
+            Token::IntNumber("5".to_string()),
+            Token::RightParen,
+            Token::LeftBrace,
+            Token::Identifier("i".to_string()),
+            Token::Equal,
+            Token::Identifier("i".to_string()),
+            Token::Plus,
+            Token::IntNumber("1".to_string()),
+            Token::Semicolon,
+            Token::RightBrace,
+            Token::Return,
+            Token::Identifier("i".to_string()),
+            Token::Semicolon,
+            Token::RightBrace,
+        ];
+
+        let mut parser = Parser::new(&tokens);
+        let ast = parser.parse().unwrap();
+
+        let expected = AstNode::Programm(vec![AstNode::FunctionDecl(FunctionDeclData {
+            name: "main".to_string(),
+            return_type: Type::Int,
+            parameter: Vec::new(),
+            body: Box::new(AstNode::BlockStatement(vec![
+                AstNode::WhileStatement(WhileLoopData {
+                    condition_expr: Box::new(AstNode::BinaryExpr(BinaryExpData {
+                        left: Box::new(AstNode::VariableExpr("i".to_string())),
+                        right: Box::new(AstNode::IntLiteralExpr(5)),
+                        operator: BinaryOperator::LessThan,
+                    })),
+                    body: Box::new(AstNode::BlockStatement(vec![AstNode::AssignmentStatement(
+                        AssignmentData {
+                            target: Box::new(AstNode::VariableExpr("i".to_string())),
+                            value: Box::new(AstNode::BinaryExpr(BinaryExpData {
+                                left: Box::new(AstNode::VariableExpr("i".to_string())),
+                                right: Box::new(AstNode::IntLiteralExpr(1)),
+                                operator: BinaryOperator::Add,
+                            })),
+                        },
+                    )])),
+                }),
+                AstNode::ReturnStatement(Box::new(AstNode::VariableExpr("i".to_string()))),
+            ])),
+        })]);
+
+        assert_eq!(ast, expected);
     }
 }

@@ -38,6 +38,7 @@ pub enum Token {
 
     If,
     Else,
+    While,
 }
 
 #[derive(Debug, PartialEq)]
@@ -247,6 +248,7 @@ impl<'a> Scanner<'a> {
             "bool" => Token::BoolKeyword,
             "if" => Token::If,
             "else" => Token::Else,
+            "while" => Token::While,
             "false" => Token::Bool(false),
             "true" => Token::Bool(true),
             "float" => Token::FloatKeyword,
@@ -789,6 +791,38 @@ mod tests {
             vec![
                 Token::FloatNumber("0.0".to_string()),
                 Token::FloatNumber("123.456".to_string()),
+            ]
+        );
+    }
+    #[test]
+    fn test_while_token() {
+        let input = "while";
+        let mut sc = Scanner::new(input);
+        let tokens = sc.scan_source().unwrap();
+        assert_eq!(tokens, vec![Token::While]);
+    }
+    #[test]
+    fn test_while_loop_tokens() {
+        let input = "while (i < 5) { i = i + 1; }";
+        let mut sc = Scanner::new(input);
+        let result = sc.scan_source().unwrap();
+        assert_eq!(
+            result,
+            vec![
+                Token::While,
+                Token::LeftParen,
+                Token::Identifier("i".to_string()),
+                Token::LessThan,
+                Token::IntNumber("5".to_string()),
+                Token::RightParen,
+                Token::LeftBrace,
+                Token::Identifier("i".to_string()),
+                Token::Equal,
+                Token::Identifier("i".to_string()),
+                Token::Plus,
+                Token::IntNumber("1".to_string()),
+                Token::Semicolon,
+                Token::RightBrace,
             ]
         );
     }
