@@ -8,6 +8,7 @@ pub enum Token {
     BoolKeyword,
     FloatKeyword,
     StringKeyword,
+    PrintKeyword,
     Identifier(String),
     IntNumber(String),
     Bool(bool),
@@ -261,6 +262,7 @@ impl<'a> Scanner<'a> {
             "if" => Token::If,
             "else" => Token::Else,
             "while" => Token::While,
+            "print" => Token::PrintKeyword,
             "false" => Token::Bool(false),
             "true" => Token::Bool(true),
             "float" => Token::FloatKeyword,
@@ -875,5 +877,41 @@ mod tests {
         ];
 
         assert_eq!(tokens, expected);
+    }
+
+    #[test]
+    fn test_scan_print_statement() {
+        let source = "print(42);";
+        let mut scanner = Scanner::new(source);
+        let tokens = scanner.scan_source().unwrap();
+
+        assert_eq!(
+            tokens,
+            vec![
+                Token::PrintKeyword,
+                Token::LeftParen,
+                Token::IntNumber("42".to_string()),
+                Token::RightParen,
+                Token::Semicolon,
+            ]
+        );
+    }
+
+    #[test]
+    fn test_scan_print_string() {
+        let source = "print(\"Hallo Welt!\");";
+        let mut scanner = Scanner::new(source);
+        let tokens = scanner.scan_source().unwrap();
+
+        assert_eq!(
+            tokens,
+            vec![
+                Token::PrintKeyword,
+                Token::LeftParen,
+                Token::String("Hallo Welt!".to_string()),
+                Token::RightParen,
+                Token::Semicolon,
+            ]
+        );
     }
 }

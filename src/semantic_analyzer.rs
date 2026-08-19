@@ -210,6 +210,10 @@ impl Analyzer {
                     .insert(data.name.clone(), fields_map);
                 Ok(())
             }
+            AstNode::PrintStatement(expr) => {
+                self.analyze_expr(&expr)?;
+                Ok(())
+            }
             node => {
                 return Err(SemanticError::NotImplemented(format!(
                     "Function not implemented for {:?}",
@@ -1032,5 +1036,46 @@ mod tests {
             matches!(result, Err(SemanticError::NotMatchingReturnType(_))),
             "Sollte einen Fehler werfen, wenn die While-Bedingung kein Bool ist."
         );
+    }
+    #[test]
+    fn test_analyze_print_statement_valid() {
+        let ast = AstNode::Programm(vec![AstNode::FunctionDecl(FunctionDeclData {
+            name: "main".to_string(),
+            return_type: Type::Int,
+            parameter: vec![],
+            body: Box::new(AstNode::BlockStatement(vec![
+                AstNode::PrintStatement(Box::new(AstNode::IntLiteralExpr(42))),
+                AstNode::PrintStatement(Box::new(AstNode::StringLiteralExpr("Hallo".to_string()))),
+                AstNode::PrintStatement(Box::new(AstNode::BoolLiteralExpr(true))),
+                AstNode::ReturnStatement(Box::new(AstNode::IntLiteralExpr(0))),
+            ])),
+        })]);
+
+        let mut analyzer = Analyzer::new();
+        let result = analyzer.analyze(ast);
+
+        assert!(
+            result.is_ok(),
+            "Semantic analysis failed for valid print statements: {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_analyze_print_undefined_variable() {
+        let ast = AstNode::Programm(vec![AstNode::FunctionDecl(FunctionDeclData {
+            name: "main".to_string(),
+            return_type: Type::Int,
+            parameter: vec![],
+            body: Box::new(AstNode::BlockStatement(vec![
+                AstNode::PrintStatement(Box::new(AstNode::VariableExpr("x".to_string()))),
+                AstNode::ReturnStatement(Box::new(AstNode::IntLiteralExpr(0))),
+            ])),
+        })]);
+
+        let mut analyzer = Analyzer::new();
+        let result = analyzer.analyze(ast);
+
+        assert!(matches!(result, Err(SemanticError::UndefinedVariable(_))));
     }
 }

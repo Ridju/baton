@@ -130,6 +130,7 @@ pub enum AstNode {
     MemberAccessExpr(MemberAccessData),
     ArrayIndexExpr(ArrayIndexData),
     WhileStatement(WhileLoopData),
+    PrintStatement(Box<AstNode>),
 }
 
 pub struct Parser<'a> {
@@ -346,6 +347,9 @@ impl<'a> Parser<'a> {
                 }
                 Some(Token::Return) => {
                     statements.push(self.parse_return_statement()?);
+                }
+                Some(Token::PrintKeyword) => {
+                    statements.push(self.parse_print_statement()?);
                 }
                 Some(Token::IntKeyword)
                 | Some(Token::BoolKeyword)
@@ -784,6 +788,47 @@ impl<'a> Parser<'a> {
             condition_expr: Box::new(condition),
             body,
         }))
+    }
+
+    fn parse_print_statement(&mut self) -> Result<AstNode, ParserError> {
+        self.tokens.next();
+
+        match self.tokens.next() {
+            Some(Token::LeftParen) => {}
+            Some(other) => {
+                return Err(ParserError::UnexpectedToken {
+                    expected: "'('".to_string(),
+                    found: format!("{:?}", other),
+                });
+            }
+            None => return Err(ParserError::UnexpectedEoF),
+        };
+
+        let expr = self.parse_expression()?;
+
+        match self.tokens.next() {
+            Some(Token::RightParen) => {}
+            Some(other) => {
+                return Err(ParserError::UnexpectedToken {
+                    expected: "'('".to_string(),
+                    found: format!("{:?}", other),
+                });
+            }
+            None => return Err(ParserError::UnexpectedEoF),
+        };
+
+        match self.tokens.next() {
+            Some(Token::Semicolon) => {}
+            Some(other) => {
+                return Err(ParserError::UnexpectedToken {
+                    expected: "'('".to_string(),
+                    found: format!("{:?}", other),
+                });
+            }
+            None => return Err(ParserError::UnexpectedEoF),
+        };
+
+        Ok(AstNode::PrintStatement(Box::new(expr)))
     }
 }
 
@@ -1417,5 +1462,49 @@ mod tests {
         })]);
 
         assert_eq!(ast, expected);
+    }
+
+    #[test]
+    fn test_parse_print_statement() {
+        let tokens = vec![
+            Token::IntKeyword,
+            Token::Identifier("main".to_string()),
+            Token::LeftParen,
+            Token::RightParen,
+            Token::LeftBrace,
+            Token::PrintKeyword,
+            Token::LeftParen,
+            Token::IntNumber("42".to_string()),
+            Token::RightParen,
+            Token::Semicolon,
+            Token::Return,
+            Token::IntNumber("0".to_string()),
+            Token::Semicolon,
+            Token::RightBrace,
+        ];
+
+        let mut parser = Parser::new(&tokens);
+        let ast = parser.parse().unwrap();
+
+        if let AstNode::Programm(nodes) = ast {
+            assert_eq!(nodes.len(), 1);
+            if let AstNode::FunctionDecl(func) = &nodes[0] {
+                assert_eq!(func.name, "main");
+
+                if let AstNode::BlockStatement(statements) = &*func.body {
+                    assert_eq!(statements.len(), 2);
+                    assert_eq!(
+                        statements[0],
+                        AstNode::PrintStatement(Box::new(AstNode::IntLiteralExpr(42)))
+                    );
+                } else {
+                    panic!("Expected block statement in function body");
+                }
+            } else {
+                panic!("Expected function declaration");
+            }
+        } else {
+            panic!("Expected program root");
+        }
     }
 }

@@ -156,7 +156,10 @@ impl Generator {
                 self.buffer.push_str(&format!("\t.asciz \"{}\"\n", val));
                 self.buffer.push_str("\t.text\n");
 
-                self.buffer.push_str(&format!("\tldr x0, ={}\n", str_label));
+                self.buffer
+                    .push_str(&format!("\tadrp x0, {}@PAGE\n", str_label));
+                self.buffer
+                    .push_str(&format!("\tadd x0, x0, {}@PAGEOFF\n", str_label));
                 Ok(())
             }
             AstNode::BlockStatement(nodes) => {
@@ -531,6 +534,45 @@ impl Generator {
 
                 Ok(())
             }
+            AstNode::PrintStatement(expr) => {
+                let expr_type = self.expr_type(&expr);
+
+                self.generate(*expr.clone())?;
+
+                let label_idx = self.label_count;
+                self.label_count += 1;
+                let fmt_label = format!("L_fmt_{}", label_idx);
+
+                let format_str = match expr_type {
+                    Type::String => "%s\\n",
+                    Type::Float => "%f\\n",
+                    _ => "%d\\n",
+                };
+
+                self.buffer.push_str("\t.section __TEXT,__cstring\n");
+                self.buffer.push_str(&format!("{}:\n", fmt_label));
+                self.buffer
+                    .push_str(&format!("\t.asciz \"{}\"\n", format_str));
+                self.buffer.push_str("\t.text\n");
+
+                self.buffer.push_str("\tsub sp, sp, #16\n");
+                if expr_type == Type::Float {
+                    self.buffer.push_str("\tstr d0, [sp]\n");
+                } else {
+                    self.buffer.push_str("\tstr x0, [sp]\n");
+                }
+
+                self.buffer
+                    .push_str(&format!("\tadrp x0, {}@PAGE\n", fmt_label));
+                self.buffer
+                    .push_str(&format!("\tadd x0, x0, {}@PAGEOFF\n", fmt_label));
+
+                self.buffer.push_str("\tbl _printf\n");
+
+                self.buffer.push_str("\tadd sp, sp, #16\n");
+
+                Ok(())
+            }
         }
     }
 
@@ -865,7 +907,8 @@ mod tests {
         let assembly = generator.buffer;
         assert!(assembly.contains("__TEXT,__cstring"));
         assert!(assembly.contains(".asciz \"Hello World\""));
-        assert!(assembly.contains("ldr x0, =L_str_0"));
+        assert!(assembly.contains("adrp x0, L_str_0@PAGE"));
+        assert!(assembly.contains("add x0, x0, L_str_0@PAGEOFF"));
     }
 
     #[test]
@@ -1049,5 +1092,54 @@ mod tests {
         assert!(assembly.contains("cmp"));
         assert!(assembly.contains("cset"));
         assert!(assembly.contains("lt"));
+    }
+
+    #[test]
+    fn test_codegen_print_statement() {
+        let ast = AstNode::Programm(vec![AstNode::FunctionDecl(FunctionDeclData {
+            name: "main".to_string(),
+            return_type: Type::Int,
+            parameter: Vec::new(),
+            body: Box::new(AstNode::BlockStatement(vec![
+                AstNode::PrintStatement(Box::new(AstNode::IntLiteralExpr(42))),
+                AstNode::ReturnStatement(Box::new(AstNode::IntLiteralExpr(0))),
+            ])),
+        })]);
+
+        let mut generator = Generator::new();
+        generator.generate(ast).unwrap();
+
+        let assembly = generator.buffer;
+
+        assert!(assembly.contains("__TEXT,__cstring"));
+        assert!(assembly.contains(".asciz \"%d\\n\""));
+        assert!(assembly.contains("sub sp, sp, #16"));
+        assert!(assembly.contains("str x0, [sp]"));
+        assert!(assembly.contains("bl _printf"));
+        assert!(assembly.contains("add sp, sp, #16"));
+    }
+
+    #[test]
+    fn test_codegen_print_string() {
+        let ast = AstNode::Programm(vec![AstNode::FunctionDecl(FunctionDeclData {
+            name: "main".to_string(),
+            return_type: Type::Int,
+            parameter: Vec::new(),
+            body: Box::new(AstNode::BlockStatement(vec![
+                AstNode::PrintStatement(Box::new(AstNode::StringLiteralExpr(
+                    "Hello Print".to_string(),
+                ))),
+                AstNode::ReturnStatement(Box::new(AstNode::IntLiteralExpr(0))),
+            ])),
+        })]);
+
+        let mut generator = Generator::new();
+        generator.generate(ast).unwrap();
+
+        let assembly = generator.buffer;
+
+        assert!(assembly.contains(".asciz \"Hello Print\""));
+        assert!(assembly.contains(".asciz \"%s\\n\""));
+        assert!(assembly.contains("bl _printf"));
     }
 }
