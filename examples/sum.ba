@@ -1,0 +1,20 @@
+int main() { 
+    int [] nums;
+    
+    nums[0] = 10;
+    nums[1] = 20;
+    nums[2] = 30;
+    nums[3] = 40;
+    nums[4] = 50;
+
+    int sum = 0;
+    int i = 0;
+
+    while (i < 5) {
+        sum = sum + nums[i];
+        i = i + 1;
+    }
+
+    print(sum);
+    return 0;
+}

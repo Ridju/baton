@@ -1,0 +1,14 @@
+int power(int base, int exp) {
+    if (exp == 0) {
+        return 1;
+    } else {
+        return base * power(base, exp - 1);
+    }
+}
+
+
+int main() {
+    int result = power(2, 4);
+    print(result);
+    return 0;
+}

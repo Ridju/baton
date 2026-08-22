@@ -1,0 +1,20 @@
+
+int ggt(int a, int b) {
+    while (a > 0) {
+        if (b > a) {
+            int temp = a;
+            a = b;
+            b = temp;
+        }
+        a = a - b;
+    }
+    return b;
+}
+
+int main() {
+    int x = 48;
+    int y = 18;
+    int result = ggt(x, y);
+    print(result);
+    return 0;
+}
