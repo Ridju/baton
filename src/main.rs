@@ -1,15 +1,10 @@
-use crate::code_generator::Generator;
-use crate::parser::{Parser, ParserError};
-use crate::scanner::Scanner;
-use crate::semantic_analyzer::Analyzer;
+use code_generator::Generator;
+use parser::{Parser, ParserError};
+use scanner::Scanner;
+use semantic_analyzer::Analyzer;
 use std::env;
 use std::fs;
 use std::process;
-
-mod code_generator;
-mod parser;
-mod scanner;
-mod semantic_analyzer;
 
 fn main() {
     let args: Vec<String> = env::args().collect();

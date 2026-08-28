@@ -4,3 +4,10 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+scanner = { path = "crates/scanner" }
+parser = { path = "crates/parser" }
+semantic_analyzer = { path = "crates/semantic_analyzer" }
+code_generator = { path = "crates/code_generator" }
+
+[workspace]
+members = [".", "crates/*"]
