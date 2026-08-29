@@ -1,6 +1,3 @@
-use std::iter::Peekable;
-use std::str::Chars;
-
 #[derive(Debug, PartialEq)]
 pub struct Token<'a> {
     line: usize,
@@ -106,16 +103,8 @@ impl<'a> Scanner<'a> {
         byte
     }
 
-    fn create_token(&self, kind: TokenKind<'a>) -> Token {
-        Token {
-            line: self.line,
-            column: self.column,
-            kind,
-        }
-    }
-
-    pub fn scan_source(&mut self) -> Result<Vec<Token>, ScannerError> {
-        let mut tokens: Vec<Token> = Vec::new();
+    pub fn scan_source(&mut self) -> Result<Vec<Token<'a>>, ScannerError> {
+        let mut tokens: Vec<Token<'a>> = Vec::new();
 
         while !self.is_at_end() {
             let start = self.cursor;
@@ -124,7 +113,7 @@ impl<'a> Scanner<'a> {
             match c {
                 b'\n' => {
                     self.line += 1;
-                    self.column += 1;
+                    self.column = 1;
                 }
                 c if c.is_ascii_whitespace() => {}
                 b'/' => {
@@ -134,50 +123,89 @@ impl<'a> Scanner<'a> {
                             self.advance();
                         }
                     } else {
-                        tokens.push(self.create_token(TokenKind::Slash));
+                        tokens.push(Token::new(self.line, self.column - 1, TokenKind::Slash));
                     }
                 }
                 b'=' => {
                     if self.peek() == b'=' {
                         self.advance();
-                        tokens.push(self.create_token(TokenKind::DoubleEqual));
+                        tokens.push(Token::new(
+                            self.line,
+                            self.column - 2,
+                            TokenKind::DoubleEqual,
+                        ));
                     } else {
-                        tokens.push(self.create_token(TokenKind::Equal));
+                        tokens.push(Token::new(self.line, self.column - 1, TokenKind::Equal));
                     }
                 }
                 b'<' => {
                     if self.peek() == b'=' {
                         self.advance();
-                        tokens.push(self.create_token(TokenKind::LessOrEqual));
+                        tokens.push(Token::new(
+                            self.line,
+                            self.column - 2,
+                            TokenKind::LessOrEqual,
+                        ));
                     } else {
-                        tokens.push(self.create_token(TokenKind::LessThan));
+                        tokens.push(Token::new(self.line, self.column - 1, TokenKind::LessThan));
                     }
                 }
                 b'>' => {
                     if self.peek() == b'=' {
                         self.advance();
-                        tokens.push(self.create_token(TokenKind::GreaterOrEqual));
+                        tokens.push(Token::new(
+                            self.line,
+                            self.column - 2,
+                            TokenKind::GreaterOrEqual,
+                        ));
                     } else {
-                        tokens.push(self.create_token(TokenKind::GreaterOrEqual));
+                        tokens.push(Token::new(
+                            self.line,
+                            self.column - 1,
+                            TokenKind::GreaterThan,
+                        ));
                     }
                 }
-                b'(' => tokens.push(self.create_token(TokenKind::LeftParen)),
-                b')' => tokens.push(self.create_token(TokenKind::RightParen)),
-                b'{' => tokens.push(self.create_token(TokenKind::LeftBrace)),
-                b'}' => tokens.push(self.create_token(TokenKind::RightBrace)),
-                b'[' => tokens.push(self.create_token(TokenKind::LeftBracket)),
-                b']' => tokens.push(self.create_token(TokenKind::RightBracket)),
-                b';' => tokens.push(self.create_token(TokenKind::Semicolon)),
-                b',' => tokens.push(self.create_token(TokenKind::Comma)),
-                b'.' => tokens.push(self.create_token(TokenKind::Dot)),
-                b'+' => tokens.push(self.create_token(TokenKind::Plus)),
-                b'-' => tokens.push(self.create_token(TokenKind::Minus)),
-                b'*' => tokens.push(self.create_token(TokenKind::Star)),
+                b'(' => tokens.push(Token::new(self.line, self.column - 1, TokenKind::LeftParen)),
+                b')' => tokens.push(Token::new(
+                    self.line,
+                    self.column - 1,
+                    TokenKind::RightParen,
+                )),
+                b'{' => tokens.push(Token::new(self.line, self.column - 1, TokenKind::LeftBrace)),
+                b'}' => tokens.push(Token::new(
+                    self.line,
+                    self.column - 1,
+                    TokenKind::RightBrace,
+                )),
+                b'[' => tokens.push(Token::new(
+                    self.line,
+                    self.column - 1,
+                    TokenKind::LeftBracket,
+                )),
+                b']' => tokens.push(Token::new(
+                    self.line,
+                    self.column - 1,
+                    TokenKind::RightBracket,
+                )),
+                b';' => tokens.push(Token::new(self.line, self.column - 1, TokenKind::Semicolon)),
+                b',' => tokens.push(Token::new(self.line, self.column - 1, TokenKind::Comma)),
+                b'.' => tokens.push(Token::new(self.line, self.column - 1, TokenKind::Dot)),
+                b'+' => tokens.push(Token::new(self.line, self.column - 1, TokenKind::Plus)),
+                b'-' => tokens.push(Token::new(self.line, self.column - 1, TokenKind::Minus)),
+                b'*' => tokens.push(Token::new(self.line, self.column - 1, TokenKind::Star)),
 
-                b'"' => tokens.push(self.scan_string()?),
-                c if c.is_ascii_digit() => tokens.push(self.scan_number()?),
+                b'"' => {
+                    let string_token = self.scan_string()?;
+                    tokens.push(string_token);
+                }
+                c if c.is_ascii_digit() => {
+                    let num_token = self.scan_number()?;
+                    tokens.push(num_token);
+                }
                 c if c.is_ascii_alphabetic() || c == b'_' => {
-                    tokens.push(self.identifier_or_keyword()?)
+                    let identifier = self.identifier_or_keyword()?;
+                    tokens.push(identifier);
                 }
                 other => {
                     return Err(ScannerError {
@@ -192,7 +220,7 @@ impl<'a> Scanner<'a> {
         Ok(tokens)
     }
 
-    fn scan_string(&mut self) -> Result<Token, ScannerError> {
+    fn scan_string(&mut self) -> Result<Token<'a>, ScannerError> {
         let start = self.cursor;
         let start_column = self.column.saturating_sub(1);
 
@@ -206,7 +234,7 @@ impl<'a> Scanner<'a> {
                         line: self.line,
                         column: start_column,
                     })?;
-                    let token = Token::new(self.line, self.column, TokenKind::String(text));
+                    let token = Token::new(self.line, start_column, TokenKind::String(text));
                     return Ok(token);
                 }
                 b'\n' => {
@@ -224,7 +252,7 @@ impl<'a> Scanner<'a> {
         })
     }
 
-    fn identifier_or_keyword(&mut self) -> Result<Token, ScannerError> {
+    fn identifier_or_keyword(&mut self) -> Result<Token<'a>, ScannerError> {
         let start = self.cursor - 1;
         let start_column = self.column.saturating_sub(1);
 
@@ -258,21 +286,37 @@ impl<'a> Scanner<'a> {
         Ok(Token::new(self.line, start_column, kind))
     }
 
-    fn scan_number(&mut self) -> Result<Token, ScannerError> {
-        let mut token_string = String::new();
-        while let Some(&c) = self.chars.peek() {
-            if c.is_numeric() || c == '.' {
-                token_string.push(c);
-                self.chars.next();
-                self.column += 1;
-            } else {
-                break;
+    fn scan_number(&mut self) -> Result<Token<'a>, ScannerError> {
+        let start = self.cursor - 1;
+        let start_column = self.column.saturating_sub(1);
+        let mut is_float = false;
+
+        while self.peek().is_ascii_digit() {
+            self.advance();
+        }
+
+        if self.peek() == b'.' && self.peek_next().is_ascii_digit() {
+            is_float = true;
+            self.advance();
+
+            while self.peek().is_ascii_digit() {
+                self.advance();
             }
         }
-        if token_string.contains(".") {
-            Ok(Token::FloatNumber(token_string))
+
+        let bytes = &self.source[start..self.cursor];
+        let text = std::str::from_utf8(bytes).map_err(|_| ScannerError {
+            message: "Invalid UTF-8 sequence in source".to_string(),
+            line: self.line,
+            column: start_column,
+        })?;
+
+        let kind = if is_float {
+            TokenKind::FloatNumber(text)
         } else {
-            Ok(Token::IntNumber(token_string))
-        }
+            TokenKind::IntNumber(text)
+        };
+
+        Ok(Token::new(self.line, self.column, kind))
     }
 }
