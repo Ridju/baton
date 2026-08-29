@@ -107,7 +107,6 @@ impl<'a> Scanner<'a> {
         let mut tokens: Vec<Token<'a>> = Vec::new();
 
         while !self.is_at_end() {
-            let start = self.cursor;
             let c = self.advance();
 
             match c {
