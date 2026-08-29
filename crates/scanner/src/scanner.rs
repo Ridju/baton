@@ -2,18 +2,31 @@ use std::iter::Peekable;
 use std::str::Chars;
 
 #[derive(Debug, PartialEq)]
-pub enum Token {
+pub struct Token<'a> {
+    line: usize,
+    column: usize,
+    kind: TokenKind<'a>,
+}
+
+impl<'a> Token<'a> {
+    fn new(line: usize, column: usize, kind: TokenKind<'a>) -> Self {
+        Self { line, column, kind }
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub enum TokenKind<'a> {
     Return,
     IntKeyword,
     BoolKeyword,
     FloatKeyword,
     StringKeyword,
     PrintKeyword,
-    Identifier(String),
-    IntNumber(String),
+    Identifier(&'a str),
+    IntNumber(&'a str),
     Bool(bool),
-    FloatNumber(String),
-    String(String),
+    FloatNumber(&'a str),
+    String(&'a str),
     StructKeyword,
 
     Plus,
