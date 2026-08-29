@@ -63,18 +63,47 @@ pub struct ScannerError {
 }
 
 pub struct Scanner<'a> {
-    chars: Peekable<Chars<'a>>,
+    source: &'a [u8],
+    cursor: usize,
     line: usize,
     column: usize,
 }
 
 impl<'a> Scanner<'a> {
     pub fn new(source: &'a str) -> Self {
-        Scanner {
-            chars: source.chars().peekable(),
+        Self {
+            source: source.as_bytes(),
+            cursor: 0,
             line: 1,
             column: 1,
         }
+    }
+
+    fn is_at_end(&self) -> bool {
+        self.cursor >= self.source.len()
+    }
+
+    fn peek(&self) -> u8 {
+        if self.is_at_end() {
+            b'\0'
+        } else {
+            self.source[self.cursor]
+        }
+    }
+
+    fn peek_next(&self) -> u8 {
+        if self.cursor + 1 >= self.source.len() {
+            b'\0'
+        } else {
+            self.source[self.cursor + 1]
+        }
+    }
+
+    fn advance(&mut self) -> u8 {
+        let byte = self.source[self.cursor];
+        self.cursor += 1;
+        self.column += 1;
+        byte
     }
 
     pub fn scan_source(&mut self) -> Result<Vec<Token>, ScannerError> {
