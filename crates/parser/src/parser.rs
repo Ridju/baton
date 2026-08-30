@@ -134,14 +134,13 @@ pub enum AstNode {
 }
 
 pub struct Parser<'a> {
-    tokens: Peekable<Iter<'a, Token>>,
+    tokens: &'a [Token<'a>],
+    cursor: usize,
 }
 
 impl<'a> Parser<'a> {
-    pub fn new(tokens: &'a Vec<Token>) -> Self {
-        Parser {
-            tokens: tokens.iter().peekable(),
-        }
+    pub fn new(tokens: &'a [Token<'a>]) -> Self {
+        Parser { tokens, cursor: 0 }
     }
 
     pub fn parse(&mut self) -> Result<AstNode, ParserError> {
