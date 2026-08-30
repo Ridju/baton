@@ -94,12 +94,6 @@ pub struct CallData {
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct StructDeclData {
-    pub name: String,
-    pub fields: Vec<Parameter>,
-}
-
-#[derive(Debug, PartialEq, Clone)]
 pub struct MemberAccessData {
     pub object: Box<AstNode>,
     pub member: String,
@@ -118,13 +112,13 @@ pub struct WhileLoopData {
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub enum AstNode {
-    Programm(Vec<AstNode>),
+pub enum AstNode<'a> {
+    Programm(Vec<AstNode<'a>>),
     FunctionDecl(FunctionDeclData),
-    ReturnStatement(Box<AstNode>),
+    ReturnStatement(Box<AstNode<'a>>),
     IntLiteralExpr(i16),
     BoolLiteralExpr(bool),
-    BlockStatement(Vec<AstNode>),
+    BlockStatement(Vec<AstNode<'a>>),
     BinaryExpr(BinaryExpData),
     IfElseStatement(IfElseData),
     VariableExpr(String),
@@ -133,11 +127,16 @@ pub enum AstNode {
     CallExpr(CallData),
     FloatLiteralExpr(f64),
     StringLiteralExpr(String),
-    StructDecl(StructDeclData),
+    StructDecl {
+        name: &'a str,
+        fields: Vec<Parameter>,
+        line: usize,
+        column: usize,
+    },
     MemberAccessExpr(MemberAccessData),
     ArrayIndexExpr(ArrayIndexData),
     WhileStatement(WhileLoopData),
-    PrintStatement(Box<AstNode>),
+    PrintStatement(Box<AstNode<'a>>),
 }
 
 pub struct Parser<'a> {
@@ -232,74 +231,44 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_struct_decl(&mut self) -> Result<AstNode, ParserError> {
-        self.tokens.next();
-        let name = match self.tokens.next() {
-            Some(Token::Identifier(name)) => name.clone(),
-            Some(other) => {
+        self.expect(TokenKind::StructKeyword)?;
+
+        let name_token = self.advance().ok_or(ParserError::UnexpectedEoF)?;
+        let struct_name = match &name_token.kind {
+            TokenKind::Identifier(name) => name,
+            _ => {
                 return Err(ParserError::UnexpectedToken {
-                    expected: "struct name".to_string(),
-                    found: format!("{:?}", other),
+                    expected: "Struct name (Identifier)".to_string(),
+                    found: format!("{:?}", name_token.kind),
+                    line: name_token.line,
+                    column: name_token.column,
                 });
             }
-            None => return Err(ParserError::UnexpectedEoF),
         };
 
-        match self.tokens.next() {
-            Some(Token::LeftBrace) => {}
-            Some(other) => {
-                return Err(ParserError::UnexpectedToken {
-                    expected: "'{'".to_string(),
-                    found: format!("{:?}", other),
-                });
-            }
-            None => return Err(ParserError::UnexpectedEoF),
-        };
+        self.expect(TokenKind::LeftParen)?;
 
         let mut fields = Vec::new();
-        loop {
-            if let Some(Token::RightBrace) = self.tokens.peek() {
-                self.tokens.next();
-                break;
-            }
+
+        while !self.check(TokenKind::RightBrace) && !self.is_at_end() {
             let field_type = self.parse_type()?;
-            let field_name = match self.tokens.next() {
-                Some(Token::Identifier(name)) => name.clone(),
-                Some(other) => {
-                    return Err(ParserError::UnexpectedToken {
-                        expected: "field name".to_string(),
-                        found: format!("{:?}", other),
-                    });
-                }
-                None => return Err(ParserError::UnexpectedEoF),
-            };
-            match self.tokens.next() {
-                Some(Token::Semicolon) => {}
-                Some(other) => {
-                    return Err(ParserError::UnexpectedToken {
-                        expected: "';'".to_string(),
-                        found: format!("{:?}", other),
-                    });
-                }
-                None => return Err(ParserError::UnexpectedEoF),
-            };
+            let field_name = self.parse_identifier()?;
+            self.expect(TokenKind::Semicolon)?;
             fields.push(Parameter {
                 name: field_name,
                 param_typ: field_type,
             });
         }
 
-        match self.tokens.next() {
-            Some(Token::Semicolon) => {}
-            Some(other) => {
-                return Err(ParserError::UnexpectedToken {
-                    expected: "';'".to_string(),
-                    found: format!("{:?}", other),
-                });
-            }
-            None => return Err(ParserError::UnexpectedEoF),
-        };
+        self.expect(TokenKind::RightBrace)?;
+        self.expect(TokenKind::Semicolon)?;
 
-        Ok(AstNode::StructDecl(StructDeclData { name, fields }))
+        Ok(AstNode::StructDecl {
+            name: struct_name,
+            fields,
+            line: name_token.line,
+            column: name_token.column,
+        })
     }
 
     fn parse_function(&mut self) -> Result<AstNode, ParserError> {
