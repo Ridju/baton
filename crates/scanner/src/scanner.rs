@@ -1,8 +1,8 @@
 #[derive(Debug, PartialEq)]
 pub struct Token<'a> {
-    line: usize,
-    column: usize,
-    kind: TokenKind<'a>,
+    pub line: usize,
+    pub column: usize,
+    pub kind: TokenKind<'a>,
 }
 
 impl<'a> Token<'a> {

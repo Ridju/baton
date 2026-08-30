@@ -2,13 +2,20 @@ use std::fmt::Alignment::Right;
 use std::iter::Peekable;
 use std::slice::Iter;
 
+use scanner::TokenKind;
+
 use crate::parser::AstNode::BinaryExpr;
 use crate::parser::ParserError::{NotImplemented, UnexpectedEoF};
 use scanner::Token;
 
 #[derive(Debug, PartialEq)]
 pub enum ParserError {
-    UnexpectedToken { expected: String, found: String },
+    UnexpectedToken {
+        expected: String,
+        found: String,
+        line: usize,
+        column: usize,
+    },
     UnknownType(String),
     NotImplemented(String),
     InvalidIntLiteral(String),
@@ -143,30 +150,79 @@ impl<'a> Parser<'a> {
         Parser { tokens, cursor: 0 }
     }
 
+    fn is_at_end(&self) -> bool {
+        match self.tokens.get(self.cursor) {
+            Some(token) => token.kind == TokenKind::EoF,
+            None => true,
+        }
+    }
+
+    fn peek(&self) -> Option<&Token<'a>> {
+        self.tokens.get(self.cursor)
+    }
+
+    fn advance(&mut self) -> Option<&Token<'a>> {
+        let token = self.tokens.get(self.cursor);
+        self.cursor += 1;
+        token
+    }
+
+    fn expect(&mut self, expected: TokenKind) -> Result<&Token<'a>, ParserError> {
+        match self.peek() {
+            Some(token) if token.kind == expected => {
+                self.advance().ok_or(ParserError::UnexpectedEoF)
+            }
+            Some(token) => Err(ParserError::UnexpectedToken {
+                expected: format!("{:?}", expected),
+                found: format!("{:?}", token.kind),
+                line: token.line,
+                column: token.column,
+            }),
+            None => Err(ParserError::UnexpectedEoF),
+        }
+    }
+
+    fn check(&self, expected: TokenKind) -> bool {
+        if let Some(token) = self.peek() {
+            token.kind == expected
+        } else {
+            false
+        }
+    }
+
     pub fn parse(&mut self) -> Result<AstNode, ParserError> {
         let mut nodes = Vec::new();
-        while let Some(token) = self.tokens.peek() {
-            match token {
-                Token::StructKeyword => {
+
+        while let Some(token) = self.peek() {
+            match &token.kind {
+                TokenKind::StructKeyword => {
                     nodes.push(self.parse_struct_decl()?);
                 }
-                Token::IntKeyword
-                | Token::BoolKeyword
-                | Token::FloatKeyword
-                | Token::StringKeyword => match self.tokens.clone().nth(2) {
-                    Some(Token::LeftParen) => {
+                TokenKind::IntKeyword
+                | TokenKind::BoolKeyword
+                | TokenKind::FloatKeyword
+                | TokenKind::StringKeyword
+                | TokenKind::Identifier(_) => {
+                    let is_function = match self.tokens.get(self.cursor + 2) {
+                        Some(t) => t.kind == TokenKind::LeftParen,
+                        None => false,
+                    };
+
+                    if is_function {
                         nodes.push(self.parse_function()?);
-                    }
-                    _ => {
+                    } else {
                         return Err(ParserError::NotImplemented(
                             "Global variable parsing not implemented".to_string(),
                         ));
                     }
-                },
+                }
+                TokenKind::EoF => break,
                 other => {
                     return Err(ParserError::UnexpectedToken {
                         expected: "type keyword (int, bool, float, string) or struct".to_string(),
                         found: format!("{:?}", other),
+                        line: token.line,
+                        column: token.column,
                     });
                 }
             }
