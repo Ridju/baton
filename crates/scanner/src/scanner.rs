@@ -50,6 +50,7 @@ pub enum TokenKind<'a> {
     If,
     Else,
     While,
+    EoF,
 }
 
 #[derive(Debug, PartialEq)]
@@ -215,7 +216,7 @@ impl<'a> Scanner<'a> {
                 }
             }
         }
-
+        tokens.push(Token::new(self.line, self.column, TokenKind::EoF));
         Ok(tokens)
     }
 
