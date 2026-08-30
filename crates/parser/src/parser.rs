@@ -121,6 +121,13 @@ pub struct StructDeclData<'a> {
     pub column: usize,
 }
 
+#[derive(Debug, PartialEq)]
+struct BlockStatementData<'a> {
+    statements: Vec<AstNode<'a>>,
+    line: usize,
+    column: usize,
+}
+
 #[derive(Debug, PartialEq, Clone)]
 pub enum AstNode<'a> {
     Programm(Vec<AstNode<'a>>),
@@ -128,7 +135,7 @@ pub enum AstNode<'a> {
     ReturnStatement(Box<AstNode<'a>>),
     IntLiteralExpr(i16),
     BoolLiteralExpr(bool),
-    BlockStatement(Vec<AstNode<'a>>),
+    BlockStatement(BlockStatementData<'a>),
     BinaryExpr(BinaryExpData),
     IfElseStatement(IfElseData),
     VariableExpr(String),
@@ -325,66 +332,21 @@ impl<'a> Parser<'a> {
         }))
     }
 
-    fn parse_block(&mut self) -> Result<Box<AstNode>, ParserError> {
-        match self.tokens.next() {
-            Some(Token::LeftBrace) => {}
-            Some(other) => {
-                return Err(ParserError::UnexpectedToken {
-                    expected: "'{'".to_string(),
-                    found: format!("{:?}", other),
-                });
-            }
-            None => return Err(ParserError::UnexpectedEoF),
-        }
+    fn parse_block(&mut self) -> Result<Box<AstNode<'a>>, ParserError> {
+        let open_brace = self.expect(TokenKind::LeftBrace)?;
 
         let mut statements = Vec::new();
 
-        loop {
-            match self.tokens.peek() {
-                Some(Token::RightBrace) => {
-                    self.tokens.next();
-                    break;
-                }
-                Some(Token::Return) => {
-                    statements.push(self.parse_return_statement()?);
-                }
-                Some(Token::PrintKeyword) => {
-                    statements.push(self.parse_print_statement()?);
-                }
-                Some(Token::IntKeyword)
-                | Some(Token::BoolKeyword)
-                | Some(Token::FloatKeyword)
-                | Some(Token::StringKeyword) => {
-                    statements.push(self.parse_var_decl()?);
-                }
-                Some(Token::Identifier(_)) => {
-                    let mut clone = self.tokens.clone();
-                    clone.next();
-                    let is_var_decl = matches!(clone.next(), Some(Token::Identifier(_)));
-
-                    if is_var_decl {
-                        statements.push(self.parse_var_decl()?);
-                    } else {
-                        statements.push(self.parse_assignment()?);
-                    }
-                }
-                Some(Token::If) => {
-                    statements.push(self.parse_if_statement()?);
-                }
-                Some(Token::While) => {
-                    statements.push(self.parse_while_statement()?);
-                }
-                Some(other) => {
-                    return Err(ParserError::UnexpectedToken {
-                        expected: "return statment or '}'".to_string(),
-                        found: format!("{:?}", other),
-                    });
-                }
-                None => return Err(ParserError::UnexpectedEoF),
-            }
+        while !self.check(TokenKind::RightBrace) && !self.is_at_end() {
+            statements.push(self.parse_statement()?);
         }
 
-        Ok(Box::new(AstNode::BlockStatement(statements)))
+        self.expect(TokenKind::RightBrace)?;
+        Ok(Box::new(AstNode::BlockStatement(BlockStatementData {
+            statements,
+            line: open_brace.line,
+            column: open_brace.column,
+        })))
     }
 
     fn parse_var_decl(&mut self) -> Result<AstNode, ParserError> {
