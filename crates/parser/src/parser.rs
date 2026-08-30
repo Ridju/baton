@@ -40,11 +40,13 @@ pub struct Parameter {
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct FunctionDeclData {
-    pub name: String,
+pub struct FunctionDeclData<'a> {
+    pub name: &'a str,
     pub return_type: Type,
     pub parameter: Vec<Parameter>,
-    pub body: Box<AstNode>,
+    pub body: Box<AstNode<'a>>,
+    pub line: usize,
+    pub column: usize,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -111,10 +113,18 @@ pub struct WhileLoopData {
     pub body: Box<AstNode>,
 }
 
+#[derive(Debug, PartialEq)]
+pub struct StructDeclData<'a> {
+    pub name: &'a str,
+    pub fields: Vec<Parameter>,
+    pub line: usize,
+    pub column: usize,
+}
+
 #[derive(Debug, PartialEq, Clone)]
 pub enum AstNode<'a> {
     Programm(Vec<AstNode<'a>>),
-    FunctionDecl(FunctionDeclData),
+    FunctionDecl(FunctionDeclData<'a>),
     ReturnStatement(Box<AstNode<'a>>),
     IntLiteralExpr(i16),
     BoolLiteralExpr(bool),
@@ -127,12 +137,7 @@ pub enum AstNode<'a> {
     CallExpr(CallData),
     FloatLiteralExpr(f64),
     StringLiteralExpr(String),
-    StructDecl {
-        name: &'a str,
-        fields: Vec<Parameter>,
-        line: usize,
-        column: usize,
-    },
+    StructDecl(StructDeclData),
     MemberAccessExpr(MemberAccessData),
     ArrayIndexExpr(ArrayIndexData),
     WhileStatement(WhileLoopData),
@@ -263,81 +268,50 @@ impl<'a> Parser<'a> {
         self.expect(TokenKind::RightBrace)?;
         self.expect(TokenKind::Semicolon)?;
 
-        Ok(AstNode::StructDecl {
+        Ok(AstNode::StructDecl(StructDeclData {
             name: struct_name,
             fields,
             line: name_token.line,
             column: name_token.column,
-        })
+        }))
     }
 
     fn parse_function(&mut self) -> Result<AstNode, ParserError> {
         let return_type = self.parse_type()?;
-        let name = match self.tokens.next() {
-            Some(Token::Identifier(name)) => name.clone(),
-            Some(other) => {
+
+        let name_token = self.advance().ok_or(ParserError::UnexpectedEoF)?;
+        let name = match &name_token.kind {
+            TokenKind::Identifier(name) => name,
+            _ => {
                 return Err(ParserError::UnexpectedToken {
-                    expected: "identifier (function name)".to_string(),
-                    found: format!("{:?}", other),
+                    expected: "Function name (Identifier)".to_string(),
+                    found: format!("{:?}", name_token.kind),
+                    line: name_token.line,
+                    column: name_token.column,
                 });
             }
-            None => return Err(ParserError::UnexpectedEoF),
         };
 
-        match self.tokens.next() {
-            Some(Token::LeftParen) => {}
-            Some(other) => {
-                return Err(ParserError::UnexpectedToken {
-                    expected: "'('".to_string(),
-                    found: format!("{:?}", other),
-                });
-            }
-            None => return Err(ParserError::UnexpectedEoF),
-        }
+        self.expect(TokenKind::LeftParen)?;
 
         let mut parameter = Vec::new();
 
-        loop {
-            if let Some(Token::RightParen) = self.tokens.peek() {
-                self.tokens.next();
-                break;
-            }
-
-            let param_type = self.parse_type()?;
-
-            let param_name = match self.tokens.next() {
-                Some(Token::Identifier(name)) => name.clone(),
-                Some(other) => {
-                    return Err(ParserError::UnexpectedToken {
-                        expected: "identifier (paramter name)".to_string(),
-                        found: format!("{:?}", other),
-                    });
-                }
-                None => return Err(ParserError::UnexpectedEoF),
-            };
-
+        while !self.check(TokenKind::RightParen) && !self.is_at_end() {
+            let field_type = self.parse_type()?;
+            let field_name = self.parse_identifier()?;
             parameter.push(Parameter {
-                name: param_name,
-                param_typ: param_type,
+                name: field_name,
+                param_typ: field_type,
             });
 
-            match self.tokens.peek() {
-                Some(Token::RightParen) => {
-                    self.tokens.next();
-                    break;
-                }
-                Some(Token::Comma) => {
-                    self.tokens.next();
-                }
-                Some(other) => {
-                    return Err(ParserError::UnexpectedToken {
-                        expected: "')' or ','".to_string(),
-                        found: format!("{:?}", other),
-                    });
-                }
-                None => return Err(ParserError::UnexpectedEoF),
+            if self.check(TokenKind::Comma) {
+                self.advance();
+            } else {
+                break;
             }
         }
+
+        self.expect(TokenKind::RightParen)?;
 
         let body = self.parse_block()?;
 
@@ -346,6 +320,8 @@ impl<'a> Parser<'a> {
             return_type,
             parameter,
             body,
+            line: name_token.line,
+            column: name_token.column,
         }))
     }
 
