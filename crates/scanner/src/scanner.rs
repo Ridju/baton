@@ -6,7 +6,7 @@ pub struct Token<'a> {
 }
 
 impl<'a> Token<'a> {
-    fn new(line: usize, column: usize, kind: TokenKind<'a>) -> Self {
+    pub fn new(line: usize, column: usize, kind: TokenKind<'a>) -> Self {
         Self { line, column, kind }
     }
 }
@@ -209,7 +209,7 @@ impl<'a> Scanner<'a> {
                 }
                 other => {
                     return Err(ScannerError {
-                        message: format!("Unexpected characgter: {}", other as char),
+                        message: format!("Unexpected character: '{}'", other as char),
                         line: self.line,
                         column: self.column,
                     });
@@ -317,6 +317,6 @@ impl<'a> Scanner<'a> {
             TokenKind::IntNumber(text)
         };
 
-        Ok(Token::new(self.line, self.column, kind))
+        Ok(Token::new(self.line, start_column, kind))
     }
 }
