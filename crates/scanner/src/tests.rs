@@ -19,7 +19,6 @@ macro_rules! test_single_tokens {
         };
     }
 
-// Automatische Generierung der Tests für alle Token-Typen:
 test_single_tokens! {
     test_kw_return: "return" => TokenKind::Return,
     test_kw_int: "int" => TokenKind::IntKeyword,

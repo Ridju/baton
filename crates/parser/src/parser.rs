@@ -269,7 +269,6 @@ impl<'a> Parser<'a> {
                 Ok(*block)
             }
             TokenKind::Identifier(_) => {
-                // Wenn nach dem Identifier ein anderer Identifier kommt -> Variablen-Deklaration (z.B. MyStruct x;)
                 if matches!(
                     self.tokens.get(self.cursor + 1).map(|t| &t.kind),
                     Some(TokenKind::Identifier(_))
@@ -431,7 +430,6 @@ impl<'a> Parser<'a> {
             }),
         }?;
 
-        // Postfix-Operatoren parsen: .member und [index]
         while let Some(token) = self.peek() {
             match token.kind {
                 TokenKind::Dot => {
