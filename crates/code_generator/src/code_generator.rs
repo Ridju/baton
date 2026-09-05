@@ -81,7 +81,7 @@ impl<'a> Generator<'a> {
     }
 
     fn gen_program(&mut self, nodes: Vec<AstNode<'a>>) -> Result<(), GeneratorError> {
-        self.buffer.push_str(".global _main\n.text\n\n");
+        self.buffer.push_str(".global main\n.text\n\n");
         for node in nodes {
             self.generate(node)?;
         }
@@ -92,7 +92,7 @@ impl<'a> Generator<'a> {
         self.local_vars.clear();
         self.stack_offset = -8;
 
-        self.buffer.push_str(&format!("_{}:\n", func.name));
+        self.buffer.push_str(&format!("{}:\n", func.name));
         self.buffer
             .push_str("\tstp x29, x30, [sp, #-16]!\n\tmov x29, sp\n");
         self.buffer.push_str("\tsub sp, sp, #256\n");
@@ -147,16 +147,16 @@ impl<'a> Generator<'a> {
         self.label_count += 1;
         let float_label = format!("L_float_{}", label_idx);
 
-        self.buffer.push_str("\t.section __TEXT,__const\n");
+        self.buffer.push_str("\t.section .rodata\n");
         self.buffer.push_str("\t.align 3\n");
         self.buffer.push_str(&format!("{}:\n", float_label));
         self.buffer.push_str(&format!("\t.double {}\n", num_str));
         self.buffer.push_str("\t.text\n");
 
         self.buffer
-            .push_str(&format!("\tadrp x16, {}@PAGE\n", float_label));
+            .push_str(&format!("\tadrp x16, {}\n", float_label));
         self.buffer
-            .push_str(&format!("\tldr d0, [x16, {}@PAGEOFF]\n", float_label));
+            .push_str(&format!("\tldr d0, [x16, :lo12:{}]\n", float_label));
         Ok(())
     }
 
@@ -165,15 +165,14 @@ impl<'a> Generator<'a> {
         self.label_count += 1;
         let str_label = format!("L_str_{}", label_idx);
 
-        self.buffer.push_str("\t.section __TEXT,__cstring\n");
+        self.buffer.push_str("\t.section .rodata\n");
         self.buffer.push_str(&format!("{}:\n", str_label));
-        self.buffer.push_str(&format!("t.asciz \"{}\"\n", val));
+        self.buffer.push_str(&format!("\t.asciz \"{}\"\n", val));
         self.buffer.push_str("\t.text\n");
 
+        self.buffer.push_str(&format!("\tadrp x0, {}\n", str_label));
         self.buffer
-            .push_str(&format!("\tadrp x0, {}@PAGE\n", str_label));
-        self.buffer
-            .push_str(&format!("\tadd x0, x0, {}@PAGEOFF\n", str_label));
+            .push_str(&format!("\tadd x0, x0, :lo12:{}\n", str_label));
 
         Ok(())
     }
@@ -258,8 +257,9 @@ impl<'a> Generator<'a> {
             }
         }
 
-        let offset = self.stack_offset;
         let size = Self::type_size(&data.var_typ, &self.struct_layouts);
+        self.stack_offset -= size;
+        let offset = self.stack_offset;
 
         self.local_vars.insert(
             data.name.to_string(),
@@ -423,7 +423,7 @@ impl<'a> Generator<'a> {
             self.buffer.push_str(&format!("\tldr x{}, [sp], #16\n", i));
         }
 
-        self.buffer.push_str(&format!("\tbl _{}\n", data.name));
+        self.buffer.push_str(&format!("\tbl {}\n", data.name));
         Ok(())
     }
 
@@ -510,11 +510,12 @@ impl<'a> Generator<'a> {
 
     fn gen_print(&mut self, expr: AstNode<'a>) -> Result<(), GeneratorError> {
         let expr_type = self.expr_type(&expr);
+
         self.generate(expr)?;
 
         let label_idx = self.label_count;
         self.label_count += 1;
-        let fmt_label = format!("L_fmt_{}", label_idx);
+        let fmt_label = format!(".L_fmt_{}", label_idx);
 
         let format_str = match expr_type {
             Type::String => "%s\\n",
@@ -522,25 +523,26 @@ impl<'a> Generator<'a> {
             _ => "%d\\n",
         };
 
-        self.buffer.push_str("\t.section __TEXT,__cstring\n");
+        self.buffer.push_str("\t.section .rodata\n");
         self.buffer.push_str(&format!("{}:\n", fmt_label));
         self.buffer
             .push_str(&format!("\t.asciz \"{}\"\n", format_str));
         self.buffer.push_str("\t.text\n");
 
-        self.buffer.push_str("\tsub sp, sp, #16\n");
         if expr_type == Type::Float {
-            self.buffer.push_str("\tstr d0, [sp]\n");
+            self.buffer.push_str("\tfmov x1, d0\n");
         } else {
-            self.buffer.push_str("\tstr x0, [sp]\n");
+            self.buffer.push_str("\tmov x1, x0\n");
         }
 
+        self.buffer.push_str(&format!("\tadrp x0, {}\n", fmt_label));
         self.buffer
-            .push_str(&format!("\tadrp x0, {}@PAGE\n", fmt_label));
-        self.buffer
-            .push_str(&format!("\tadd x0, x0, {}@PAGEOFF\n", fmt_label));
-        self.buffer.push_str("\tbl _printf\n");
+            .push_str(&format!("\tadd x0, x0, :lo12:{}\n", fmt_label));
+
+        self.buffer.push_str("\tsub sp, sp, #16\n");
+        self.buffer.push_str("\tbl printf\n");
         self.buffer.push_str("\tadd sp, sp, #16\n");
+
         Ok(())
     }
 
