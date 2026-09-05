@@ -76,7 +76,7 @@ impl<'a> Analyzer<'a> {
         }
     }
 
-    pub fn analyze(&mut self, ast: AstNode<'a>) -> Result<(), SemanticError> {
+    pub fn analyze(&mut self, ast: &AstNode<'a>) -> Result<(), SemanticError> {
         match ast {
             AstNode::Programm(nodes) => {
                 for node in nodes {
@@ -106,12 +106,13 @@ impl<'a> Analyzer<'a> {
                     });
                 }
 
-                let prvious_return_type = self.current_return_type.replace(data.return_type);
+                let prvious_return_type =
+                    self.current_return_type.replace(data.return_type.clone());
                 self.enter_scope();
 
-                for param in data.parameter {
+                for param in &data.parameter {
                     let param_meta = MetaData {
-                        typ: param.param_typ,
+                        typ: param.param_typ.clone(),
                         kind: ElementKind::Parameter,
                     };
                     if self
@@ -127,7 +128,7 @@ impl<'a> Analyzer<'a> {
                     }
                 }
 
-                self.analyze(*data.body)?;
+                self.analyze(&data.body)?;
                 self.exit_scope();
                 self.current_return_type = prvious_return_type;
 
@@ -148,7 +149,7 @@ impl<'a> Analyzer<'a> {
                 }
 
                 let var_meta = MetaData {
-                    typ: data.var_typ,
+                    typ: data.var_typ.clone(),
                     kind: ElementKind::Variable,
                 };
 
@@ -205,8 +206,8 @@ impl<'a> Analyzer<'a> {
             }
             AstNode::BlockStatement(data) => {
                 self.enter_scope();
-                for node in data.statements {
-                    self.analyze(node)?;
+                for node in &data.statements {
+                    self.analyze(&node)?;
                 }
                 self.exit_scope();
                 Ok(())
@@ -223,9 +224,9 @@ impl<'a> Analyzer<'a> {
                     });
                 }
 
-                self.analyze(*data.if_branch)?;
-                if let Some(else_branch) = data.else_branch {
-                    self.analyze(*else_branch)?;
+                self.analyze(&data.if_branch)?;
+                if let Some(else_branch) = &data.else_branch {
+                    self.analyze(&else_branch)?;
                 }
                 Ok(())
             }
@@ -241,7 +242,7 @@ impl<'a> Analyzer<'a> {
                     });
                 }
 
-                self.analyze(*data.body)?;
+                self.analyze(&data.body)?;
                 Ok(())
             }
             AstNode::StructDecl(data) => {
@@ -254,9 +255,9 @@ impl<'a> Analyzer<'a> {
                 }
 
                 let mut fields_map = HashMap::new();
-                for field in data.fields {
+                for field in &data.fields {
                     if fields_map
-                        .insert(field.name.to_string(), field.param_typ)
+                        .insert(field.name.to_string(), field.param_typ.clone())
                         .is_some()
                     {
                         return Err(SemanticError::Redefinition {

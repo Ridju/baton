@@ -19,7 +19,7 @@ fn test_semantic_valid_function() {
         column: 1,
     })]);
     let mut analyzer = Analyzer::new();
-    assert!(analyzer.analyze(ast).is_ok());
+    assert!(analyzer.analyze(&ast).is_ok());
 }
 
 #[test]
@@ -59,7 +59,7 @@ fn test_multiple_valid_functions() {
         }),
     ]);
     let mut analyzer = Analyzer::new();
-    assert!(analyzer.analyze(ast).is_ok());
+    assert!(analyzer.analyze(&ast).is_ok());
 }
 
 #[test]
@@ -89,7 +89,7 @@ fn test_nested_blocks() {
         column: 1,
     })]);
     let mut analyzer = Analyzer::new();
-    assert!(analyzer.analyze(ast).is_ok());
+    assert!(analyzer.analyze(&ast).is_ok());
 }
 
 #[test]
@@ -129,7 +129,7 @@ fn test_semantic_error_redefinition() {
         }),
     ]);
     let mut analyzer = Analyzer::new();
-    let result = analyzer.analyze(ast);
+    let result = analyzer.analyze(&ast);
     assert!(matches!(result, Err(SemanticError::Redefinition { .. })));
 }
 
@@ -152,7 +152,7 @@ fn test_semantic_error_invalid_return_expression() {
         column: 1,
     })]);
     let mut analyzer = Analyzer::new();
-    let result = analyzer.analyze(ast);
+    let result = analyzer.analyze(&ast);
     assert!(matches!(result, Err(SemanticError::TypeMismatch { .. })));
 }
 
@@ -211,7 +211,7 @@ fn test_semantic_valid_if_else() {
     })]);
 
     let mut analyzer = Analyzer::new();
-    assert!(analyzer.analyze(ast).is_ok());
+    assert!(analyzer.analyze(&ast).is_ok());
 }
 
 #[test]
@@ -244,7 +244,7 @@ fn test_semantic_error_undefined_variable_in_if_condition() {
     })]);
 
     let mut analyzer = Analyzer::new();
-    let result = analyzer.analyze(ast);
+    let result = analyzer.analyze(&ast);
     assert!(matches!(
         result,
         Err(SemanticError::UndefinedVariable { .. })
@@ -309,7 +309,7 @@ fn test_funtion_call() {
     ]);
 
     let mut analyzer = Analyzer::new();
-    assert!(analyzer.analyze(ast).is_ok());
+    assert!(analyzer.analyze(&ast).is_ok());
 }
 
 #[test]
@@ -348,7 +348,7 @@ fn test_semantic_valid_bool_and_float() {
     })]);
 
     let mut analyzer = Analyzer::new();
-    assert!(analyzer.analyze(ast).is_ok());
+    assert!(analyzer.analyze(&ast).is_ok());
 }
 
 #[test]
@@ -386,7 +386,7 @@ fn test_semantic_error_assignment_type_mismatch() {
     })]);
 
     let mut analyzer = Analyzer::new();
-    let result = analyzer.analyze(ast);
+    let result = analyzer.analyze(&ast);
     assert!(matches!(result, Err(SemanticError::TypeMismatch { .. })));
 }
 
@@ -416,7 +416,7 @@ fn test_semantic_error_binary_operand_mismatch() {
     })]);
 
     let mut analyzer = Analyzer::new();
-    let result = analyzer.analyze(ast);
+    let result = analyzer.analyze(&ast);
     assert!(matches!(result, Err(SemanticError::TypeMismatch { .. })));
 }
 
@@ -449,5 +449,5 @@ fn test_semantic_valid_string_variable() {
     })]);
 
     let mut analyzer = Analyzer::new();
-    assert!(analyzer.analyze(ast).is_ok());
+    assert!(analyzer.analyze(&ast).is_ok());
 }
