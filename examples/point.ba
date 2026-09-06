@@ -1,14 +1,14 @@
 
 struct Point {
-    int x;
-    int y;
+    float x;
+    float y;
 };
 
 int main() {
     Point p;
 
-    p.x = 15;
-    p.y = 22;
+    p.x = 15.0;
+    p.y = 22.4;
 
     print(p.x + p.y);
     return 0;
