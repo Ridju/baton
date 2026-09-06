@@ -665,7 +665,7 @@ fn test_parse_if_without_else() {
 
     let mut parser = Parser::new(&tokens);
     let ast = parser.parse().unwrap();
-
+    #[allow(clippy::collapsible_if)]
     if let AstNode::Programm(nodes) = ast {
         if let AstNode::FunctionDecl(func) = &nodes[0] {
             if let AstNode::BlockStatement(stmts) = &*func.body {

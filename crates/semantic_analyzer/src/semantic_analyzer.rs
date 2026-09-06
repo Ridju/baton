@@ -67,6 +67,12 @@ pub struct Analyzer<'a> {
     struct_definitions: HashMap<String, HashMap<String, Type<'a>>>,
 }
 
+impl<'a> Default for Analyzer<'a> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<'a> Analyzer<'a> {
     pub fn new() -> Self {
         Self {
@@ -207,7 +213,7 @@ impl<'a> Analyzer<'a> {
             AstNode::BlockStatement(data) => {
                 self.enter_scope();
                 for node in &data.statements {
-                    self.analyze(&node)?;
+                    self.analyze(node)?;
                 }
                 self.exit_scope();
                 Ok(())
@@ -226,7 +232,7 @@ impl<'a> Analyzer<'a> {
 
                 self.analyze(&data.if_branch)?;
                 if let Some(else_branch) = &data.else_branch {
-                    self.analyze(&else_branch)?;
+                    self.analyze(else_branch)?;
                 }
                 Ok(())
             }
@@ -273,7 +279,7 @@ impl<'a> Analyzer<'a> {
                 Ok(())
             }
             AstNode::PrintStatement(expr) => {
-                self.analyze_expr(&expr)?;
+                self.analyze_expr(expr)?;
                 Ok(())
             }
             AstNode::IntLiteralExpr(_)
@@ -340,6 +346,7 @@ impl<'a> Analyzer<'a> {
                     | parser::BinaryOperator::LessOrEqual
                     | parser::BinaryOperator::GreaterOrEqual
                     | parser::BinaryOperator::DoubleEqual => Ok(Type::Bool),
+                    #[allow(unreachable_patterns)]
                     other => Err(SemanticError::NotImplemented {
                         message: format!("Binary operator not implemented: {:?}", other),
                         line: data.line,

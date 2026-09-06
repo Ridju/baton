@@ -25,6 +25,12 @@ pub struct Generator<'a> {
     struct_layouts: HashMap<String, HashMap<String, (i32, Type<'a>)>>,
 }
 
+impl<'a> Default for Generator<'a> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<'a> Generator<'a> {
     pub fn new() -> Self {
         Self {
@@ -555,6 +561,7 @@ impl<'a> Generator<'a> {
             AstNode::VariableExpr(name) => self.local_vars.get(*name).unwrap().typ.clone(),
             AstNode::MemberAccessExpr(data) => {
                 let obj_type = self.expr_type(&data.object);
+                #[allow(clippy::collapsible_if)]
                 if let Type::Struct(struct_name) = obj_type {
                     if let Some(fields) = self.struct_layouts.get(struct_name) {
                         if let Some((_, field_type)) = fields.get(&data.member) {
